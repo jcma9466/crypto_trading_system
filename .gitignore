@@ -1,0 +1,186 @@
+# Environment variables and sensitive data
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Machine Learning Models and Training Data
+*.pth
+*.pt
+*.h5
+*.pkl
+*.pickle
+*.joblib
+*.model
+*.weights
+*.ckpt
+*.pb
+
+# Training logs and outputs
+logs/
+runs/
+tensorboard_logs/
+wandb/
+*.log
+
+# Data files (large datasets)
+*.csv
+*.json
+*.parquet
+*.h5
+*.hdf5
+*.npy
+*.npz
+data/raw/
+data/processed/
+data/external/
+
+# Trading specific
+*.trade
+*.position
+*.order
+backtest_results/
+trade_logs/
+portfolio_data/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Documentation
+docs/_build/
+
+# Package managers
+node_modules/
+.npm
+.yarn/
+yarn-error.log
+
+# Conda
+.conda/
+conda-meta/
+
+# PyTorch specific
+*.pth.tar
+checkpoints/
+
+# Weights & Biases
+wandb/
+
+# MLflow
+mlruns/
+
+# DVC
+.dvc/
+.dvcignore
+
+# Experiment tracking
+experiments/
+artifacts/
+outputs/
+
+# Config files with sensitive info
+config/local_settings.py
+config/production.py
+secrets.yaml
+secrets.json
+
+# Large result files
+results/
+figures/
+plots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Profiling
+*.prof
+*.lprof
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# pytype
+.pytype/
+
+# Cython
+cython_debug/
+
+# Ruff
+.ruff_cache/
