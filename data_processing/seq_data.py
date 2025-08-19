@@ -19,8 +19,8 @@ class ConfigData:
     def __init__(self, data_dir: str = "./data"):
         self.data_dir = data_dir
 
-        # 原有的CSV文件路径（保持兼容性）
-        self.csv_path = f"{data_dir}/BTC_1sec.csv"
+        # 修改为15分钟数据的CSV文件路径
+        self.csv_path = f"{data_dir}/BTC_15m.csv"
         
         # 修改为15分钟数据的文件路径
         self.input_ary_path = f"{data_dir}/BTC_15m_input.npy"
