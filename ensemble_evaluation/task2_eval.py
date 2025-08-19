@@ -267,7 +267,10 @@ class EnsembleEvaluator:
             # 过滤掉零值或负值，避免除零错误
             valid_indices = net_assets_array[:-1] > 0
             if np.any(valid_indices):
-                returns = np.diff(net_assets_array)[valid_indices[:-1] if len(valid_indices) > 1 else valid_indices] / net_assets_array[:-1][valid_indices]
+                # 确保索引维度匹配
+                diff_values = np.diff(net_assets_array)
+                base_values = net_assets_array[:-1]
+                returns = diff_values[valid_indices] / base_values[valid_indices]
             else:
                 returns = np.array([])
         else:
