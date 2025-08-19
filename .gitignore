@@ -80,7 +80,7 @@ data/external/
 # But allow our specific BTC 15-minute data files
 !data/BTC_15m_input.npy
 !data/BTC_15m_label.npy
-
+!data/BTC_15m.csv
 # Trading specific
 *.trade
 *.position
