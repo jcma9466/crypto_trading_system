@@ -48,7 +48,7 @@ class ProjectConfig:
     RL_CONFIG = {
         "num_sims": 512,
         "num_ignore_step": 60,
-        "max_position": 1,
+        "max_position": 10,
         "step_gap": 2,
         "slippage": 7e-7,
         "gamma": 0.995,

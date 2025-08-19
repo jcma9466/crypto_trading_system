@@ -5,9 +5,9 @@ from copy import deepcopy
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
 
-from erl_config import Config
-from erl_replay_buffer import ReplayBuffer
-from erl_net import QNetTwin, QNetTwinDuel 
+from .erl_config import Config
+from .erl_replay_buffer import ReplayBuffer
+from .erl_net import QNetTwin, QNetTwinDuel 
 
 
 def get_optim_param(optimizer: torch.optim) -> list:  # backup

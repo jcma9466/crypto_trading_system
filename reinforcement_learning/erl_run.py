@@ -5,8 +5,8 @@ import numpy as np
 from multiprocessing import Process, Pipe
 
 from .erl_config import Config, build_env
-from erl_replay_buffer import ReplayBuffer
-from erl_evaluator import Evaluator
+from .erl_replay_buffer import ReplayBuffer
+from .erl_evaluator import Evaluator
 from trade_simulator import TradeSimulator, EvalTradeSimulator
 
 #
@@ -469,7 +469,7 @@ def run():
 
     gpu_id = int(sys.argv[1]) if len(sys.argv) > 1 else -1  # Get GPU_ID from command line parameters
 
-    from erl_agent import AgentD3QN
+    from .erl_agent import AgentD3QN
 
     num_sims = 512
     num_ignore_step = 60

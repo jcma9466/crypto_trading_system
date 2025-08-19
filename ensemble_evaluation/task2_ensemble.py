@@ -238,9 +238,9 @@ def run(save_path, agent_list, log_rules=False):
 
     from erl_agent import AgentD3QN
 
-    num_sims = 2**12
+    num_sims = 2**13
     num_ignore_step = 60
-    max_position = 1
+    max_position = 10
     step_gap = 2
     slippage = 7e-7
 
@@ -267,9 +267,9 @@ def run(save_path, agent_list, log_rules=False):
     args.explore_rate = 0.005
     args.state_value_tau = 0.01
     args.soft_update_tau = 2e-6
-    args.learning_rate = 2e-6
-    args.batch_size = 512
-    args.break_step = int(32)  # TODO reset to 32e4
+    args.learning_rate = 1e-5
+    args.batch_size = 256
+    args.break_step = int(8e4)  # TODO reset to 32e4
     args.buffer_size = int(max_step * 32)
     args.repeat_times = 2
     args.horizon_len = int(max_step * 4)

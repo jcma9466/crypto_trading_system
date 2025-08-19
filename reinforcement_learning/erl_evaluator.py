@@ -5,7 +5,7 @@ import numpy as np
 from torch import Tensor
 from typing import Tuple, List
 
-from erl_config import Config
+from .erl_config import Config
 
 
 class Evaluator:

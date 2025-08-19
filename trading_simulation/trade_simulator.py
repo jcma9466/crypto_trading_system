@@ -3,19 +3,21 @@ import sys
 import torch as th
 import numpy as np
 import pandas as pd
+from collections import deque
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_processing.data_config import ConfigData
 from reinforcement_learning.erl_config import Config, build_env
+from improved_trading_strategy import RiskAdjustedReward, EnhancedStateSpace
 
 
 class TradeSimulator:
     def __init__(
         self,
         num_sims=64,
-        slippage=5e-5,
-        max_position=2,
+        slippage=2e-5,
+        max_position=20,
         step_gap=1,
         delay_step=1,
         num_ignore_step=60,
@@ -91,7 +93,20 @@ class TradeSimulator:
 
         """stop-loss"""
         self.best_price = th.zeros((num_sims,), dtype=th.float32, device=device)
-        self.stop_loss_thresh = 1e-3
+        self.stop_loss_thresh = 0.02
+        
+        """改进的交易策略组件"""
+        # 风险调整奖励函数
+        self.reward_calculator = RiskAdjustedReward(
+            transaction_cost_rate=0.001,
+            risk_aversion=0.5
+        )
+        
+        # 增强状态空间
+        self.enhanced_state = EnhancedStateSpace(lookback_window=20)
+        
+        # 价格历史记录（用于计算波动性）
+        self.price_history = deque(maxlen=100)
 
     def _reset(self, slippage=None, _if_random=True):
         self.slippage = slippage if isinstance(slippage, float) else self.slippage
@@ -200,7 +215,29 @@ class TradeSimulator:
         new_cash = old_cash - cost * th.where(direction, 1 + self.slippage, 1 - self.slippage)
         new_asset = new_cash + new_position * mid_price
 
-        reward = new_asset - old_asset
+        # 更新价格历史
+        current_price = mid_price[0].item() if mid_price.numel() > 0 else 0.0
+        self.price_history.append(current_price)
+        
+        # 计算市场波动性
+        if len(self.price_history) >= 20:
+            volatility = float(np.std(list(self.price_history)[-20:]))
+        else:
+            volatility = 0.01
+        
+        # 快速向量化奖励计算（避免Python循环）
+        # 基础收益率（向量化）
+        raw_return = th.where(old_asset > 0, (new_asset - old_asset) / old_asset, th.zeros_like(old_asset))
+        
+        # 交易成本（向量化）
+        position_change = th.abs(new_position - old_position)
+        transaction_cost = position_change * 0.0005  # 简化的交易成本
+        
+        # 风险惩罚（向量化）
+        risk_penalty = volatility * 0.1 * th.abs(action_int.float()) * 0.1
+        
+        # 简化奖励（移除昂贵的夏普比率和numpy转换）
+        reward = raw_return - transaction_cost - risk_penalty
 
         self.cash = new_cash  # update the cash
         self.asset = new_asset  # update the total asset
@@ -241,7 +278,7 @@ class TradeSimulator:
 class EvalTradeSimulator(TradeSimulator):
 
     def reset(self, slippage=None, date_strs=()):
-        self.stop_loss_thresh = 1e-4
+        self.stop_loss_thresh = 0.015
         return self._reset(slippage=slippage, _if_random=False)
 
     def step(self, action):

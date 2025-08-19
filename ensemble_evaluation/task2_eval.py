@@ -3,7 +3,7 @@ import sys
 import torch
 import numpy as np
 import pandas as pd
-from collections import Counter
+from collections import Counter, deque
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,6 +11,11 @@ from reinforcement_learning.erl_config import Config, build_env
 from trading_simulation.trade_simulator import EvalTradeSimulator
 from reinforcement_learning.erl_agent import AgentD3QN, AgentDoubleDQN, AgentTwinD3QN
 from utils.metrics import sharpe_ratio, max_drawdown, return_over_max_drawdown
+from improved_trading_strategy import (
+    VolatilityBasedPositionSizing, 
+    AdaptiveSignalLock, 
+    ConfidenceBasedEnsemble
+)
 
 # 导入基准模型和图片生成模块
 try:
@@ -87,6 +92,44 @@ class EnsembleEvaluator:
         self.window_size = 79   # 移动窗口大小
         self.lock_signal = 0    # 锁定的信号
         self.lock_steps = 0     # 锁定剩余步数
+        
+        # 改进的交易策略组件
+        self.position_sizer = VolatilityBasedPositionSizing(
+            base_position=10000,
+            max_position=200000,
+            min_position=1000
+        )
+        
+        self.adaptive_lock = AdaptiveSignalLock(
+            window_size=20,
+            volatility_threshold=0.02
+        )
+        
+        self.confidence_ensemble = ConfidenceBasedEnsemble(
+            num_agents=len(agent_classes)
+        )
+        
+        # 价格历史记录（用于计算波动性）
+        self.price_history = deque(maxlen=100)
+    
+    def calculate_agent_confidence(self, actions, q_values_list):
+        """计算智能体置信度"""
+        confidences = []
+        for i, (action, q_vals) in enumerate(zip(actions, q_values_list)):
+            # 基于Q值差异计算置信度
+            if len(q_vals.shape) > 1:
+                q_vals_flat = q_vals.flatten()
+            else:
+                q_vals_flat = q_vals
+                
+            if len(q_vals_flat) > 1:
+                q_vals_sorted = np.sort(q_vals_flat)[::-1]  # 降序排列
+                confidence = (q_vals_sorted[0] - q_vals_sorted[1]) / (abs(q_vals_sorted[0]) + 1e-8)
+                confidence = min(1.0, max(0.1, confidence))
+            else:
+                confidence = 0.5
+            confidences.append(confidence)
+        return confidences
 
     def load_agents(self):
         args = self.args
@@ -129,7 +172,8 @@ class EnsembleEvaluator:
             actions = []
             intermediate_state = last_state
 
-            # Collect actions from each agent
+            # Collect actions and Q-values from each agent
+            q_values_list = []
             for agent in agents:
                 actor = agent.act
                 tensor_state = torch.as_tensor(intermediate_state, dtype=torch.float32, device=agent.device)
@@ -137,11 +181,20 @@ class EnsembleEvaluator:
                 tensor_action = tensor_q_values.argmax(dim=1)
                 action = tensor_action.detach().cpu().unsqueeze(1)
                 actions.append(action)
+                q_values_list.append(tensor_q_values.detach().cpu().numpy())
 
+            # 计算智能体置信度
+            confidences = self.calculate_agent_confidence(actions, q_values_list)
+            
             # Debug agent decisions
             print(f"Individual agent actions: {[a.item() for a in actions]}")
-            action = self._ensemble_action(actions=actions)
-            action_int = action.item() - 1
+            print(f"Agent confidences: {[f'{c:.3f}' for c in confidences]}")
+            
+            # 使用改进的集成决策
+            action_values = [a.item() - 1 for a in actions]  # 转换为 -1, 0, 1
+            ensemble_action = self.confidence_ensemble.ensemble_decision(action_values, confidences)
+            action_int = ensemble_action
+            print(f"Ensemble decision: {ensemble_action} from actions {action_values} with confidences {[f'{c:.3f}' for c in confidences]}")
 
             state, reward, done, _ = trade_env.step(action=action)
 
@@ -160,60 +213,69 @@ class EnsembleEvaluator:
             new_cash = self.cash[-1]
             act1=0
             act2=0
-            # 信号锁定逻辑
-            if self.lock_steps > 0:
-                action_int = self.lock_signal
-                self.lock_steps -= 1
+            # 更新价格历史
+            self.price_history.append(mid_price_value)
+            
+            # 计算市场波动性
+            if len(self.price_history) >= 20:
+                market_volatility = float(np.std(list(self.price_history)[-20:]))
             else:
-                # 信号锁定逻辑
-                original_action = action_int  # 保存原始信号
-                
-                # 更新移动窗口（无论是否处于锁定状态都继续更新）
-                self.signal_window.append(original_action)
-                if len(self.signal_window) > self.window_size:
-                    self.signal_window.pop(0)
-                
-                # 计算窗口内的空头信号数量
-                short_signals = sum(1 for x in self.signal_window if x < 0)
-                
-                # 检查是否需要锁定或继续锁定
-                if short_signals >= 9:
-                    self.lock_steps = 500
-                    action_int = -1  # 强制执行空头
-                    print(f"Locking/Maintaining short position due to {short_signals} short signals in window")
-                elif self.lock_steps > 0:
-                    self.lock_steps -= 1
-                    action_int = -1  # 维持空头
+                market_volatility = 0.02
+            
+            # 计算趋势强度
+            if len(self.price_history) >= 10:
+                trend_strength = (self.price_history[-1] - self.price_history[-10]) / self.price_history[-10]
+            else:
+                trend_strength = 0.0
+            
+            # 使用自适应信号锁定
+            is_locked, final_action, lock_steps = self.adaptive_lock.should_lock_signal(
+                action_int, market_volatility, trend_strength
+            )
+            
+            if is_locked:
+                action_int = final_action
+                print(f"Adaptive signal lock: action={final_action}, steps={lock_steps}, volatility={market_volatility:.4f}")
+            
+            print(f"Final action for trading: {action_int}")
 
-            # Modified trading logic with better price checks
+            # 动态仓位管理
+            avg_confidence = np.mean(confidences)
+            current_balance = new_cash + self.current_btc * mid_price_value
+            
+            # 计算动态仓位大小
+            position_size = self.position_sizer.calculate_position_size(
+                market_volatility, avg_confidence, current_balance
+            )
+            
+            # 改进的交易逻辑
+            slippage = self.args.env_args.get("slippage", 0.0005) if self.args.env_args else 0.0005
+            
             if action_int > 0:  # Buy signal
                 act1 += 1
-                if self.current_btc <0:
-                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
-                    trade_value = 32*mid_price_value * (1 + slippage)
-                    new_cash -= trade_value
-                    self.current_btc += 32
-                    print(f"Executed BUY at {mid_price_value:.2f}")
-                elif self.current_btc == 0:  # Can afford to buy
-                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
-                    trade_value = 16*mid_price_value * (1 + slippage)
-                    new_cash -= trade_value
-                    self.current_btc += 16
-                    print(f"Executed BUY at {mid_price_value:.2f}")
+                # 计算可购买的BTC数量
+                btc_to_buy = position_size / mid_price_value
+                trade_cost = btc_to_buy * mid_price_value * (1 + slippage)
+                
+                if trade_cost <= new_cash * 0.95:  # 保留5%现金
+                    new_cash -= trade_cost
+                    self.current_btc += btc_to_buy
+                    print(f"Dynamic BUY: {btc_to_buy:.4f} BTC at {mid_price_value:.2f}, cost={trade_cost:.2f}, confidence={avg_confidence:.3f}")
+                else:
+                    print(f"Insufficient cash for dynamic buy: need {trade_cost:.2f}, have {new_cash:.2f}")
+                    
             elif action_int < 0:  # Sell signal
                 act2 += 1
-                if self.current_btc > 0:
-                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
-                    trade_value = 32*mid_price_value * (1 - slippage)
+                # 计算可卖出的BTC数量
+                btc_to_sell = min(abs(self.current_btc), position_size / mid_price_value)
+                
+                if btc_to_sell > 0.001:  # 最小交易量
+                    trade_value = btc_to_sell * mid_price_value * (1 - slippage)
                     new_cash += trade_value
-                    self.current_btc -= 32
-                    print(f"Executed SELL at {mid_price_value:.2f}")
-                elif self.current_btc == 0:
-                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
-                    trade_value = 16*mid_price_value * (1 - slippage)
-                    new_cash += trade_value
-                    self.current_btc -= 16
-                    print(f"Executed SELL at {mid_price_value:.2f}")
+                    self.current_btc -= btc_to_sell
+                    print(f"Dynamic SELL: {btc_to_sell:.4f} BTC at {mid_price_value:.2f}, value={trade_value:.2f}, confidence={avg_confidence:.3f}")
+                else:
+                    print(f"Insufficient BTC for dynamic sell: have {self.current_btc:.4f} BTC")
 
 
             self.cash.append(new_cash)
@@ -360,7 +422,7 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
 
     num_sims = 1
     num_ignore_step = 800
-    max_position = 1
+    max_position = 10
     step_gap = 16
     slippage = 7e-7
 

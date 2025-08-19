@@ -220,11 +220,11 @@ def step3_reinforcement_learning_training(gpu_id=-1, force=False):
         logger.info("Starting reinforcement learning agent training...")
         
         # 设置训练参数
-        num_sims = 512
+        num_sims = 1024
         num_ignore_step = 60
-        max_position = 1
+        max_position = 10
         step_gap = 2
-        slippage = 7e-7
+        slippage = 3e-7
         max_step = (4800 - num_ignore_step) // step_gap
         
         env_args = {
@@ -245,8 +245,8 @@ def step3_reinforcement_learning_training(gpu_id=-1, force=False):
         args.gpu_id = gpu_id
         args.random_seed = gpu_id
         args.gamma = 0.995
-        args.learning_rate = 2e-6
-        args.batch_size = 512
+        args.learning_rate = 1e-5
+        args.batch_size = 256
         args.break_step = int(8e4)
         args.buffer_size = int(max_step * 32)
         args.repeat_times = 2
