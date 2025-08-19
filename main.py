@@ -282,8 +282,8 @@ def step4_model_evaluation(gpu_id=-1):
     logger.info("=" * 60)
     
     try:
-        from task2_eval import run_evaluation
-        from erl_agent import AgentD3QN, AgentDoubleDQN, AgentTwinD3QN
+        from ensemble_evaluation.task2_eval import run_evaluation
+        from reinforcement_learning.erl_agent import AgentD3QN, AgentDoubleDQN, AgentTwinD3QN
         
         logger.info("开始模型评估...")
         logger.info("Starting model evaluation...")
