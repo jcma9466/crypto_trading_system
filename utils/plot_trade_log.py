@@ -6,6 +6,8 @@ import os
 
 # 检查文件是否存在
 trade_log_path = 'trained_agents/trade_log.csv'
+# 确保目录存在
+os.makedirs('trained_agents', exist_ok=True)
 if not os.path.exists(trade_log_path):
     print(f"Warning: {trade_log_path} not found. Creating empty plot.")
     # 创建空图表

@@ -76,6 +76,8 @@ class EnsembleEvaluator:
             print(f"Warning: Agent state_dim ({self.state_dim}) != Environment state_dim ({args.env_args['state_dim']})")
             self.state_dim = args.env_args["state_dim"]
         self.trade_log_path = os.path.join(save_path, "trade_log.csv")
+        # 确保目录存在
+        os.makedirs(save_path, exist_ok=True)
         # 创建CSV文件并写入表头
         with open(self.trade_log_path, 'w', encoding='utf-8') as f:
             f.write("Step,Action,Price,Cash,BTC,BTC_Value,Total\n")
