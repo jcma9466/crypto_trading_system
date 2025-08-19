@@ -152,7 +152,7 @@ def step1_data_preprocessing(gpu_id=-1):
         logger.error(traceback.format_exc())
         return False
 
-def step2_factor_model_training(gpu_id=-1):
+def step2_factor_model_training(gpu_id=-1, force=False):
     """
     步骤2: 因子模型训练
     Step 2: Factor model training
@@ -167,8 +167,8 @@ def step2_factor_model_training(gpu_id=-1):
         
         config = ConfigData()
         
-        # 检查是否已经存在训练好的模型
-        if Path(config.predict_ary_path).exists():
+        # 检查是否已经存在训练好的模型（除非强制执行）
+        if not force and Path(config.predict_ary_path).exists():
             logger.info("因子模型预测文件已存在，跳过训练步骤")
             logger.info("Factor model prediction file exists, skipping training")
             return True
@@ -192,7 +192,7 @@ def step2_factor_model_training(gpu_id=-1):
         logger.error(f"因子模型训练失败 / Factor model training failed: {e}")
         return False
 
-def step3_reinforcement_learning_training(gpu_id=-1):
+def step3_reinforcement_learning_training(gpu_id=-1, force=False):
     """
     步骤3: 强化学习智能体训练
     Step 3: Reinforcement learning agent training
@@ -207,11 +207,11 @@ def step3_reinforcement_learning_training(gpu_id=-1):
         from reinforcement_learning.erl_agent import AgentD3QN
         from trading_simulation.trade_simulator import TradeSimulator, EvalTradeSimulator
         
-        # 检查是否已经存在训练好的智能体
+        # 检查是否已经存在训练好的智能体（除非强制执行）
         model_dirs = ["TradeSimulator-v0_D3QN_-1", "TradeSimulator-v0_D3QN_0"]
         model_exists = any(Path(model_dir).exists() and any(Path(model_dir).iterdir()) for model_dir in model_dirs)
         
-        if model_exists:
+        if not force and model_exists:
             logger.info("训练好的智能体已存在，跳过训练步骤")
             logger.info("Trained agents exist, skipping training")
             return True
@@ -338,6 +338,8 @@ def main():
     parser.add_argument('--step', type=str, default='all', 
                        choices=['all', '1', '2', '3', '4', '5'],
                        help='执行特定步骤 (1: 数据预处理, 2: 序列模型训练, 3: 强化学习训练, 4: 模型评估, 5: 集成评估)')
+    parser.add_argument('--force', action='store_true', 
+                       help='强制重新执行步骤2和步骤3，忽略已存在的文件 / Force re-execution of steps 2 and 3, ignoring existing files')
     
     args = parser.parse_args()
     
@@ -364,11 +366,11 @@ def main():
                 logger.error("数据预处理失败，程序退出")
                 return
         elif step == '2':
-            if not step2_factor_model_training(args.gpu_id):
+            if not step2_factor_model_training(args.gpu_id, force=args.force):
                 logger.error("因子模型训练失败，程序退出")
                 return
         elif step == '3':
-            if not step3_reinforcement_learning_training(args.gpu_id):
+            if not step3_reinforcement_learning_training(args.gpu_id, force=args.force):
                 logger.error("强化学习训练失败，程序退出")
                 return
         elif step == '4':
