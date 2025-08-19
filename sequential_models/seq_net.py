@@ -234,6 +234,18 @@ class MambaTCNRegNet(nn.Module):
         
         self._init_parameters()
     
+    def _init_parameters(self):
+        """Initialize network parameters with orthogonal initialization"""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=0.1)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 1e-6)
+            elif isinstance(module, nn.Conv1d):
+                nn.init.orthogonal_(module.weight, gain=0.1)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+    
     def forward(self, inp, hid=None):
         # Input mapping
         x = self.mlp_inp(inp)

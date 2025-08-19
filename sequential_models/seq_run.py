@@ -59,6 +59,12 @@ def train_mamba_model(gpu_id: int):
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
     
+    # Move data tensors to device to avoid CUDA errors
+    seq_data.train_input_seq = seq_data.train_input_seq.to(device)
+    seq_data.train_label_seq = seq_data.train_label_seq.to(device)
+    seq_data.valid_input_seq = seq_data.valid_input_seq.to(device)
+    seq_data.valid_label_seq = seq_data.valid_label_seq.to(device)
+    
     mamba_paths = get_mamba_model_paths(args)
 
     '''Model'''
@@ -130,13 +136,13 @@ def train_mamba_model(gpu_id: int):
     print(f'| mamba training completed, flag saved to {mamba_paths["flag_path"]}')
 
     # 生成预测结果
-    predict_ary = np.empty_like(seq_data.valid_label_seq)
+    predict_ary = np.empty_like(seq_data.valid_label_seq.cpu().numpy())
     hid: Optional[TEN] = None
 
     print(f"| mamba valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
         seq_i1 = seq_i0 + seq_len
-        inp = seq_data.valid_input_seq[seq_i0:seq_i1].to(device)
+        inp = seq_data.valid_input_seq[seq_i0:seq_i1]
         out, hid = net.forward(inp[:, None, :], hid)
         if out is not None:
             predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
@@ -183,8 +189,15 @@ class SeqData:
         i0s = np.random.randint(1024, self.train_seq_len - seq_len, size=batch_size)
         ids = np.arange(seq_len)[None, :].repeat(batch_size, axis=0) + i0s[:, None]
 
-        input_ary = self.train_input_seq[ids, :].permute(1, 0, 2).to(device)
-        label_seq = self.train_label_seq[ids, :].permute(1, 0, 2).to(device)
+        input_ary = self.train_input_seq[ids, :].permute(1, 0, 2)
+        label_seq = self.train_label_seq[ids, :].permute(1, 0, 2)
+        
+        # Only move to device if not already on the correct device
+        if input_ary.device != device:
+            input_ary = input_ary.to(device)
+        if label_seq.device != device:
+            label_seq = label_seq.to(device)
+            
         return input_ary, label_seq
 
 
@@ -308,7 +321,7 @@ def train_model(gpu_id: int):
     th.save(net.state_dict(), predict_net_path)
     print(f'| save network in {predict_net_path}')
 
-    predict_ary = np.empty_like(seq_data.valid_label_seq)
+    predict_ary = np.empty_like(seq_data.valid_label_seq.cpu().numpy())
     hid: Optional[TEN] = None
 
     print(f"| valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
@@ -361,7 +374,7 @@ def valid_model(gpu_id: int):
     net = RnnRegNet(inp_dim=input_dim, mid_dim=mid_dim, out_dim=label_dim, num_layers=num_layers).to(device)
     net.load_state_dict(th.load(predict_net_path, map_location=lambda storage, loc: storage))
 
-    predict_ary = np.empty_like(seq_data.valid_label_seq)
+    predict_ary = np.empty_like(seq_data.valid_label_seq.cpu().numpy() if seq_data.valid_label_seq.is_cuda else seq_data.valid_label_seq.numpy())
     hid: Optional[TEN] = None
 
     seq_len = 2 ** 9
@@ -391,6 +404,10 @@ def valid_mamba_model(gpu_id: int):
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
     
+    # Move data tensors to device to avoid CUDA errors
+    seq_data.valid_input_seq = seq_data.valid_input_seq.to(device)
+    seq_data.valid_label_seq = seq_data.valid_label_seq.to(device)
+    
     mamba_paths = get_mamba_model_paths(args)
 
     '''Model'''
@@ -398,14 +415,14 @@ def valid_mamba_model(gpu_id: int):
     net = MambaTCNRegNet(inp_dim=input_dim, mid_dim=mid_dim, out_dim=label_dim, num_layers=num_layers).to(device)
     net.load_state_dict(th.load(mamba_paths['net_path'], map_location=lambda storage, loc: storage))
 
-    predict_ary = np.empty_like(seq_data.valid_label_seq)
+    predict_ary = np.empty_like(seq_data.valid_label_seq.cpu().numpy())
     hid: Optional[TEN] = None
 
     seq_len = 2 ** 9
     print(f"| mamba valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
         seq_i1 = seq_i0 + seq_len
-        inp = seq_data.valid_input_seq[seq_i0:seq_i1].to(device)
+        inp = seq_data.valid_input_seq[seq_i0:seq_i1]
         out, hid = net.forward(inp[:, None, :], hid)
         if out is not None:
             predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
