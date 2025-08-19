@@ -39,17 +39,20 @@ class TradeSimulator:
         self.factor_ary = np.load(args.predict_ary_path)
         self.factor_ary = th.tensor(self.factor_ary, dtype=th.float32)  # CPU
 
-        # 尝试从数据库加载数据，如果失败则使用CSV文件
-        print("正在从PostgreSQL数据库加载BTC 15分钟K线数据用于强化学习训练...")
-        data_df = args.load_btc_data_from_db()
-        
-        if data_df is None:
-            print("数据库加载失败，尝试从CSV文件加载...")
-            if os.path.exists(args.csv_path):
-                data_df = pd.read_csv(args.csv_path)
-                print(f"从CSV文件加载了 {len(data_df)} 条数据")
-            else:
+        # 优先检查本地CSV文件是否存在
+        if os.path.exists(args.csv_path):
+            print(f"发现本地CSV文件，直接从CSV文件加载数据用于强化学习训练: {args.csv_path}")
+            data_df = pd.read_csv(args.csv_path)
+            print(f"从CSV文件加载了 {len(data_df)} 条数据")
+        else:
+            # 如果本地CSV文件不存在，才尝试从数据库加载数据
+            print("本地CSV文件不存在，正在从PostgreSQL数据库加载BTC 15分钟K线数据用于强化学习训练...")
+            data_df = args.load_btc_data_from_db()
+            
+            if data_df is None:
                 raise FileNotFoundError(f"无法从数据库或CSV文件加载数据。CSV文件路径: {args.csv_path}")
+            else:
+                print(f"从数据库加载了 {len(data_df)} 条数据")
         
         self.price_ary = data_df[["bids_distance_3", "asks_distance_3", "midpoint"]].values
         self.price_ary[:, 0] = self.price_ary[:, 2] * (1 + self.price_ary[:, 0])

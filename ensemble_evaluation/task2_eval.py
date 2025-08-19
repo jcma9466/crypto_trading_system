@@ -408,18 +408,20 @@ def run_benchmark_evaluation():
     
     # 加载价格数据
     try:
-        # 优先从数据库加载15分钟K线数据
-        print("Loading price data from PostgreSQL database...")
-        price_data = config_data.load_btc_data_from_db()
-        
-        # 如果数据库加载失败，回退到CSV文件
-        if price_data is None:
-            print("Database loading failed, trying CSV file...")
-            if not os.path.exists(config_data.csv_path):
-                print(f"Error: Price data file not found at {config_data.csv_path}")
-                return None
-            print(f"Loading price data from {config_data.csv_path}...")
+        # 优先检查本地CSV文件是否存在
+        if os.path.exists(config_data.csv_path):
+            print(f"发现本地CSV文件，直接从CSV文件加载价格数据: {config_data.csv_path}")
             price_data = pd.read_csv(config_data.csv_path)
+        else:
+            # 如果本地CSV文件不存在，才尝试从数据库加载数据
+            print("本地CSV文件不存在，正在从PostgreSQL数据库加载价格数据...")
+            price_data = config_data.load_btc_data_from_db()
+            
+            if price_data is None:
+                print(f"Error: 无法从数据库或CSV文件加载数据。CSV文件路径: {config_data.csv_path}")
+                return None
+            else:
+                print(f"从数据库加载了 {len(price_data)} 条价格数据")
         
         print(f"Loaded {len(price_data)} rows of price data")
         print(f"Columns: {list(price_data.columns)}")
