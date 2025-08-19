@@ -78,9 +78,9 @@ pip install -r requirements.txt
 
 ### 2. 数据准备 / Data Preparation
 
-将比特币1秒级数据文件 `BTC_1sec.csv` 放置在 `../data/` 目录下，或配置PostgreSQL数据库连接。
+将比特币15分钟级数据文件 `BTC_15m.csv` 放置在 `../data/` 目录下，或配置PostgreSQL数据库连接。
 
-Place the Bitcoin 1-second data file `BTC_1sec.csv` in the `../data/` directory, or configure PostgreSQL database connection.
+Place the Bitcoin 15-minute data file `BTC_15m.csv` in the `../data/` directory, or configure PostgreSQL database connection.
 
 ### 3. 运行系统 / Run System
 

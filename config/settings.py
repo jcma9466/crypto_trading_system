@@ -29,11 +29,11 @@ class ProjectConfig:
     
     # 数据配置
     DATA_CONFIG = {
-        "btc_csv_path": DATA_ROOT / "BTC_1sec.csv",
-        "input_ary_path": DATA_ROOT / "BTC_1sec_input.npy",
-        "label_ary_path": DATA_ROOT / "BTC_1sec_label.npy",
-        "predict_ary_path": DATA_ROOT / "BTC_1sec_predict.npy",
-        "predict_pth_path": DATA_ROOT / "BTC_1sec_predict.pth",
+        "btc_csv_path": DATA_ROOT / "BTC_15m.csv",
+        "input_ary_path": DATA_ROOT / "BTC_15m_input.npy",
+        "label_ary_path": DATA_ROOT / "BTC_15m_label.npy",
+        "predict_ary_path": DATA_ROOT / "BTC_15m_predict.npy",
+        "predict_pth_path": DATA_ROOT / "BTC_15m_predict.pth",
     }
     
     # 模型配置
@@ -85,7 +85,7 @@ class ProjectConfig:
         "database": os.getenv("DB_NAME", "crypto_data"),
         "username": os.getenv("DB_USER", "postgres"),
         "password": os.getenv("DB_PASSWORD", ""),
-        "table_name": os.getenv("DB_TABLE", "btc_1sec"),
+        "table_name": os.getenv("DB_TABLE", "btc_15m"),
     }
     
     # 日志配置

@@ -19,8 +19,8 @@ class ConfigData:
     def __init__(self, data_dir: str = "./data"):
         self.data_dir = data_dir
 
-        # 原有的CSV文件路径（保持兼容性）
-        self.csv_path = f"{data_dir}/BTC_1sec.csv"
+        # 修改为15分钟数据的CSV文件路径
+        self.csv_path = f"{data_dir}/BTC_15m.csv"
         
         # 修改为15分钟数据的文件路径
         self.input_ary_path = f"{data_dir}/BTC_15m_input.npy"
@@ -1365,19 +1365,21 @@ def convert_btc_csv_to_btc_npy(args=ConfigData()):
     input_ary_path = args.input_ary_path
     label_ary_path = args.label_ary_path
 
-    # 尝试从数据库加载数据
-    print("正在从PostgreSQL数据库加载BTC 15分钟K线数据...")
-    df = args.load_btc_data_from_db()
-    
-    # 如果数据库加载失败，回退到CSV文件
-    if df is None:
-        print("数据库加载失败，尝试从CSV文件加载...")
-        csv_path = args.csv_path
-        if os.path.exists(csv_path):
-            df = pd.read_csv(csv_path)
-            print(f"从CSV文件加载了 {len(df)} 条数据")
-        else:
+    # 优先检查本地CSV文件是否存在
+    csv_path = args.csv_path
+    if os.path.exists(csv_path):
+        print(f"发现本地CSV文件，直接从CSV文件加载数据: {csv_path}")
+        df = pd.read_csv(csv_path)
+        print(f"从CSV文件加载了 {len(df)} 条数据")
+    else:
+        # 如果本地CSV文件不存在，才尝试从数据库加载数据
+        print("本地CSV文件不存在，正在从PostgreSQL数据库加载BTC 15分钟K线数据...")
+        df = args.load_btc_data_from_db()
+        
+        if df is None:
             raise FileNotFoundError(f"无法从数据库或CSV文件加载数据。CSV文件路径: {csv_path}")
+        else:
+            print(f"从数据库加载了 {len(df)} 条数据")
     
     # 确保数据目录存在
     os.makedirs(args.data_dir, exist_ok=True)

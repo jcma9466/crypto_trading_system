@@ -11,7 +11,7 @@ Cryptocurrency High-Frequency Trading Reinforcement Learning System - Main Progr
 4. 交易模拟和回测评估
 5. 集成模型评估
 
-作者：AI Assistant
+作者：JCMa
 日期：2025年1月
 """
 

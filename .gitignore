@@ -70,11 +70,16 @@ wandb/
 *.parquet
 *.h5
 *.hdf5
-*.npy
-*.npz
+# Allow specific BTC 15-minute data files for the project
+# *.npy
+# *.npz
+# Exclude large raw data directories
 data/raw/
 data/processed/
 data/external/
+# But allow our specific BTC 15-minute data files
+!data/BTC_15m_input.npy
+!data/BTC_15m_label.npy
 
 # Trading specific
 *.trade

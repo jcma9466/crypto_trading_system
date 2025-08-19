@@ -25,6 +25,12 @@ except ImportError:
     print("Warning: generate_article_figures.py not found. Figure generation will be skipped.")
     generate_all_article_figures = None
 
+try:
+    from data_config import ConfigData
+except ImportError:
+    print("Warning: data_config.py not found. Using fallback configuration.")
+    ConfigData = None
+
 
 def to_python_number(x):
     if isinstance(x, torch.Tensor):
@@ -54,7 +60,7 @@ class EnsembleEvaluator:
         self.state_dim = 8 + 2
         self.device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
 
-        self.trade_env = build_env(args.env_class, args.env_args, gpu_id=args.gpu_id)
+        self.trade_env = build_env(args.env_class, args.env_args or {}, gpu_id=args.gpu_id)
 
         self.current_btc = 0
         # 使用固定的初始资金，因为 Config 类没有 starting_cash 属性
@@ -66,7 +72,7 @@ class EnsembleEvaluator:
         self.starting_cash = starting_cash
 
         # Ensure state dimensions match
-        if self.state_dim != args.env_args["state_dim"]:
+        if args.env_args and self.state_dim != args.env_args.get("state_dim", self.state_dim):
             print(f"Warning: Agent state_dim ({self.state_dim}) != Environment state_dim ({args.env_args['state_dim']})")
             self.state_dim = args.env_args["state_dim"]
         self.trade_log_path = os.path.join(save_path, "trade_log.csv")
@@ -181,24 +187,28 @@ class EnsembleEvaluator:
             if action_int > 0:  # Buy signal
                 act1 += 1
                 if self.current_btc <0:
-                    trade_value = 32*mid_price_value * (1 + self.args.env_args["slippage"])
+                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
+                    trade_value = 32*mid_price_value * (1 + slippage)
                     new_cash -= trade_value
                     self.current_btc += 32
                     print(f"Executed BUY at {mid_price_value:.2f}")
                 elif self.current_btc == 0:  # Can afford to buy
-                    trade_value = 16*mid_price_value * (1 + self.args.env_args["slippage"])
+                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
+                    trade_value = 16*mid_price_value * (1 + slippage)
                     new_cash -= trade_value
                     self.current_btc += 16
                     print(f"Executed BUY at {mid_price_value:.2f}")
             elif action_int < 0:  # Sell signal
                 act2 += 1
                 if self.current_btc > 0:
-                    trade_value = 32*mid_price_value * (1 - self.args.env_args["slippage"])
+                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
+                    trade_value = 32*mid_price_value * (1 - slippage)
                     new_cash += trade_value
                     self.current_btc -= 32
                     print(f"Executed SELL at {mid_price_value:.2f}")
                 elif self.current_btc == 0:
-                    trade_value = 16*mid_price_value * (1 - self.args.env_args["slippage"])
+                    slippage = self.args.env_args.get("slippage", 0) if self.args.env_args else 0
+                    trade_value = 16*mid_price_value * (1 - slippage)
                     new_cash += trade_value
                     self.current_btc -= 16
                     print(f"Executed SELL at {mid_price_value:.2f}")
@@ -267,7 +277,10 @@ class EnsembleEvaluator:
             # 过滤掉零值或负值，避免除零错误
             valid_indices = net_assets_array[:-1] > 0
             if np.any(valid_indices):
-                returns = np.diff(net_assets_array)[valid_indices[:-1] if len(valid_indices) > 1 else valid_indices] / net_assets_array[:-1][valid_indices]
+                # 确保索引维度匹配
+                diff_values = np.diff(net_assets_array)
+                base_values = net_assets_array[:-1]
+                returns = diff_values[valid_indices] / base_values[valid_indices]
             else:
                 returns = np.array([])
         else:
@@ -388,23 +401,27 @@ def run_benchmark_evaluation():
     print("\n=== Running Benchmark Model Evaluation ===")
     
     # 检查数据文件
-    from data_config import ConfigData
+    if ConfigData is None:
+        print("Error: data_config module not available")
+        return None
     config_data = ConfigData()
     
     # 加载价格数据
     try:
-        # 优先从数据库加载15分钟K线数据
-        print("Loading price data from PostgreSQL database...")
-        price_data = config_data.load_btc_data_from_db()
-        
-        # 如果数据库加载失败，回退到CSV文件
-        if price_data is None:
-            print("Database loading failed, trying CSV file...")
-            if not os.path.exists(config_data.csv_path):
-                print(f"Error: Price data file not found at {config_data.csv_path}")
-                return None
-            print(f"Loading price data from {config_data.csv_path}...")
+        # 优先检查本地CSV文件是否存在
+        if os.path.exists(config_data.csv_path):
+            print(f"发现本地CSV文件，直接从CSV文件加载价格数据: {config_data.csv_path}")
             price_data = pd.read_csv(config_data.csv_path)
+        else:
+            # 如果本地CSV文件不存在，才尝试从数据库加载数据
+            print("本地CSV文件不存在，正在从PostgreSQL数据库加载价格数据...")
+            price_data = config_data.load_btc_data_from_db()
+            
+            if price_data is None:
+                print(f"Error: 无法从数据库或CSV文件加载数据。CSV文件路径: {config_data.csv_path}")
+                return None
+            else:
+                print(f"从数据库加载了 {len(price_data)} 条价格数据")
         
         print(f"Loaded {len(price_data)} rows of price data")
         print(f"Columns: {list(price_data.columns)}")
