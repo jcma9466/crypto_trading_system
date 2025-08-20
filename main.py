@@ -106,7 +106,7 @@ def check_environment():
     
     return True
 
-def step1_data_preprocessing(gpu_id=-1):
+def step1_data_preprocessing(gpu_id=-1, force=False):
     """
     步骤1: 数据预处理和特征工程
     Step 1: Data preprocessing and feature engineering
@@ -123,14 +123,25 @@ def step1_data_preprocessing(gpu_id=-1):
         logger.info("训练数据: 2017年1月1日 - 2024年6月30日")
         logger.info("测试数据: 2024年7月1日 - 2024年12月31日")
         
-        # 强制重新生成训练和测试数据
-        logger.info("强制重新生成训练和测试数据文件...")
-        convert_btc_csv_to_btc_npy()
-        
-        # 验证生成的文件
+        # 检查是否需要重新生成数据
         train_config = ConfigData(data_split="train")
         test_config = ConfigData(data_split="test")
         
+        train_files_exist = (Path(train_config.input_ary_path).exists() and 
+                           Path(train_config.label_ary_path).exists())
+        test_files_exist = (Path(test_config.input_ary_path).exists() and 
+                          Path(test_config.label_ary_path).exists())
+        
+        if force or not (train_files_exist and test_files_exist):
+            if force:
+                logger.info("强制重新生成训练和测试数据文件...")
+            else:
+                logger.info("数据文件不存在，开始生成训练和测试数据文件...")
+            convert_btc_csv_to_btc_npy()
+        else:
+            logger.info("数据文件已存在，跳过数据预处理步骤")
+        
+        # 重新验证文件存在性
         train_files_exist = (Path(train_config.input_ary_path).exists() and 
                            Path(train_config.label_ary_path).exists())
         test_files_exist = (Path(test_config.input_ary_path).exists() and 
@@ -169,10 +180,11 @@ def step2_factor_model_training(gpu_id=-1, force=False):
         logger.info("开始因子模型训练...")
         logger.info("Starting factor model training...")
         logger.info("使用训练数据: 2017年1月1日 - 2024年6月30日")
-        logger.info("强制重新训练Mamba模型...")
+        if force:
+            logger.info("强制重新训练Mamba模型...")
         
-        # 强制重新训练模型
-        train_model(gpu_id=gpu_id, force=True)
+        # 根据force参数决定是否强制重新训练模型
+        train_model(gpu_id=gpu_id, force=force)
         
         logger.info("开始模型验证和预测生成...")
         logger.info("Starting model validation and prediction generation...")
@@ -324,7 +336,7 @@ def main():
     Main function
     """
     parser = argparse.ArgumentParser(description='加密货币高频交易强化学习系统')
-    parser.add_argument('--gpu_id', type=int, default=-1, help='GPU ID (-1 for CPU)')
+    parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID (-1 for CPU)')
     parser.add_argument('--step', type=str, default='all', 
                        choices=['all', '1', '2', '3', '4', '5'],
                        help='执行特定步骤 (1: 数据预处理, 2: 序列模型训练, 3: 强化学习训练, 4: 模型评估, 5: 集成评估)')
@@ -333,12 +345,10 @@ def main():
     
     args = parser.parse_args()
     
-    # 默认启用强制重新训练模式
-    args.force = True
-    
     logger.info("加密货币高频交易强化学习系统启动")
     logger.info("Cryptocurrency High-Frequency Trading RL System Starting")
-    logger.info("强制重新训练模式已启用 / Force retraining mode enabled")
+    if args.force:
+        logger.info("强制重新训练模式已启用 / Force retraining mode enabled")
     logger.info("训练数据范围: 2017年1月1日 - 2024年6月30日")
     logger.info("测试数据范围: 2024年7月1日 - 2024年12月31日")
     
@@ -358,7 +368,7 @@ def main():
     
     for step in steps_to_run:
         if step == '1':
-            if not step1_data_preprocessing(args.gpu_id):
+            if not step1_data_preprocessing(args.gpu_id, force=args.force):
                 logger.error("数据预处理失败，程序退出")
                 return
         elif step == '2':

@@ -144,11 +144,18 @@ def train_mamba_model(gpu_id: int):
 
     print(f"| mamba valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
-        seq_i1 = seq_i0 + seq_len
+        seq_i1 = min(seq_i0 + seq_len, seq_data.valid_seq_len)  # 确保不超出数据范围
+        actual_len = seq_i1 - seq_i0
+        
         inp = seq_data.valid_input_seq[seq_i0:seq_i1]
         out, hid = net.forward(inp[:, None, :], hid)
         if out is not None:
-            predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
+            out_data = out.data.cpu().numpy().squeeze(1)
+            # 确保输出数据长度与实际序列长度匹配
+            if out_data.shape[0] >= actual_len:
+                predict_ary[seq_i0:seq_i1] = out_data[:actual_len]
+            else:
+                predict_ary[seq_i0:seq_i0+out_data.shape[0]] = out_data
     
     np.save(mamba_paths['predict_path'], predict_ary)
     print(f'| save mamba predict in {mamba_paths["predict_path"]}')
@@ -439,11 +446,18 @@ def valid_mamba_model(gpu_id: int):
     seq_len = 2 ** 9
     print(f"| mamba valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
-        seq_i1 = seq_i0 + seq_len
+        seq_i1 = min(seq_i0 + seq_len, seq_data.valid_seq_len)  # 确保不超出数据范围
+        actual_len = seq_i1 - seq_i0
+        
         inp = seq_data.valid_input_seq[seq_i0:seq_i1]
         out, hid = net.forward(inp[:, None, :], hid)
         if out is not None:
-            predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
+            out_data = out.data.cpu().numpy().squeeze(1)
+            # 确保输出数据长度与实际序列长度匹配
+            if out_data.shape[0] >= actual_len:
+                predict_ary[seq_i0:seq_i1] = out_data[:actual_len]
+            else:
+                predict_ary[seq_i0:seq_i0+out_data.shape[0]] = out_data
     
     np.save(mamba_paths['predict_path'], predict_ary)
     print(f'| save mamba predict in {mamba_paths["predict_path"]}')
