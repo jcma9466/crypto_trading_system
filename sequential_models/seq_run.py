@@ -57,7 +57,6 @@ def train_mamba_model(gpu_id: int):
     if_report = True
 
     '''data'''
-    args = ConfigData()
     seq_data = SeqData(args=args, train_ratio=0.8)
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
@@ -386,7 +385,7 @@ def valid_model(gpu_id: int):
     mid_dim = 128  # 从256改为128
     num_layers = 4  # 从8改为4
 
-    seq_data = SeqData(args=args, train_ratio=0.0)
+    seq_data = SeqData(args=args, train_ratio=0.0)  # train_ratio=0.0表示所有数据用于验证
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
 
@@ -398,17 +397,30 @@ def valid_model(gpu_id: int):
     net = RnnRegNet(inp_dim=input_dim, mid_dim=mid_dim, out_dim=label_dim, num_layers=num_layers).to(device)
     net.load_state_dict(th.load(predict_net_path, map_location=lambda storage, loc: storage))
 
+    # 检查验证数据是否为空
+    if seq_data.valid_seq_len == 0:
+        print("| Warning: No validation data available, skipping prediction generation")
+        return
+    
     predict_ary = np.empty_like(seq_data.valid_label_seq.cpu().numpy() if seq_data.valid_label_seq.is_cuda else seq_data.valid_label_seq.numpy())
     hid: Optional[TEN] = None
 
     seq_len = 2 ** 9
     print(f"| valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
-        seq_i1 = seq_i0 + seq_len
+        seq_i1 = min(seq_i0 + seq_len, seq_data.valid_seq_len)  # 确保不超出数据范围
+        actual_len = seq_i1 - seq_i0
+        
         inp = seq_data.valid_input_seq[seq_i0:seq_i1].to(device)
         out, hid = net.forward(inp[:, None, :], hid)
-        if hid is not None:
-            predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
+        if out is not None:
+            out_data = out.data.cpu().numpy().squeeze(1)
+            # 确保输出数据长度与实际序列长度匹配
+            if out_data.shape[0] >= actual_len:
+                predict_ary[seq_i0:seq_i1] = out_data[:actual_len]
+            else:
+                predict_ary[seq_i0:seq_i0+out_data.shape[0]] = out_data
+    
     np.save(predict_ary_path, predict_ary)
     print(f'| save predict in {predict_ary_path}')
 
