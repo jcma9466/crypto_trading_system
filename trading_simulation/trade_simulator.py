@@ -88,6 +88,7 @@ class TradeSimulator:
         self.state_dim = 8 + 2  # factor_dim + (position, holding)
         self.action_dim = 3  # short, nothing, long
         self.if_discrete = True
+        # 默认max_step，可能会被外部设置覆盖
         self.max_step = (self.seq_len - num_ignore_step) // step_gap
         self.target_return = +np.inf
 
@@ -136,6 +137,10 @@ class TradeSimulator:
         self.step_i += self.step_gap
         step_is = self.step_is + self.step_i
         step_is_cpu = step_is.to(th.device("cpu"))
+        
+        # 确保索引不超出边界
+        max_index = self.price_ary.shape[0] - 1
+        step_is_cpu = th.clamp(step_is_cpu, 0, max_index)
 
         action = action.squeeze(1).to(self.device)
         action_int = action - 1  # map (0, 1, 2) to (-1, 0, +1), means (sell, nothing, buy)

@@ -48,13 +48,15 @@ def train_mamba_model(gpu_id: int):
     weight_decay = 1e-4
     wup_dim = 64
     valid_gap = 32
+    
+    # 使用训练数据配置
+    args = ConfigData(data_split="train")
     num_patience = 16
     clip_grad_norm = 5
     out_dir = './output'
     if_report = True
 
     '''data'''
-    args = ConfigData()
     seq_data = SeqData(args=args, train_ratio=0.8)
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
@@ -141,11 +143,18 @@ def train_mamba_model(gpu_id: int):
 
     print(f"| mamba valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
-        seq_i1 = seq_i0 + seq_len
+        seq_i1 = min(seq_i0 + seq_len, seq_data.valid_seq_len)  # 确保不超出数据范围
+        actual_len = seq_i1 - seq_i0
+        
         inp = seq_data.valid_input_seq[seq_i0:seq_i1]
         out, hid = net.forward(inp[:, None, :], hid)
         if out is not None:
-            predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
+            out_data = out.data.cpu().numpy().squeeze(1)
+            # 确保输出数据长度与实际序列长度匹配
+            if out_data.shape[0] >= actual_len:
+                predict_ary[seq_i0:seq_i1] = out_data[:actual_len]
+            else:
+                predict_ary[seq_i0:seq_i0+out_data.shape[0]] = out_data
     
     np.save(mamba_paths['predict_path'], predict_ary)
     print(f'| save mamba predict in {mamba_paths["predict_path"]}')
@@ -208,23 +217,36 @@ def _update_network(optimizer, obj, clip_grad_norm):
     optimizer.step()
 
 
-def train_model(gpu_id: int):
+def train_model(gpu_id: int, force: bool = True):
     device = th.device(f"cuda:{gpu_id}" if (th.cuda.is_available() and (gpu_id >= 0)) else "cpu")
     
     '''data'''
-    args = ConfigData()
+    # 使用训练数据配置
+    args = ConfigData(data_split="train")
     
-    # 检查mamba可用性和是否已有mamba结果
+    # 检查mamba可用性
     mamba_available = check_mamba_availability()
     mamba_paths = get_mamba_model_paths(args)
     
     if mamba_available:
-        # 检查是否已有mamba训练结果
-        if os.path.exists(mamba_paths['flag_path']) and os.path.exists(mamba_paths['net_path']):
+        if force:
+            # 强制重新训练，删除已有的训练标记和模型文件
+            if os.path.exists(mamba_paths['flag_path']):
+                os.remove(mamba_paths['flag_path'])
+                print("| Removed existing Mamba training flag")
+            if os.path.exists(mamba_paths['net_path']):
+                os.remove(mamba_paths['net_path'])
+                print("| Removed existing Mamba model")
+            if os.path.exists(mamba_paths['predict_path']):
+                os.remove(mamba_paths['predict_path'])
+                print("| Removed existing Mamba predictions")
+        
+        # 检查是否已有mamba训练结果（仅在非强制模式下）
+        if not force and os.path.exists(mamba_paths['flag_path']) and os.path.exists(mamba_paths['net_path']):
             print("| Mamba model already trained, skipping training")
             return
         else:
-            print("| Mamba available, using Mamba for training")
+            print("| Mamba available, starting training")
             train_mamba_model(gpu_id)
             return
     
@@ -341,7 +363,8 @@ def valid_model(gpu_id: int):
     th.set_grad_enabled(False)
 
     '''data'''
-    args = ConfigData()
+    # 使用测试数据配置
+    args = ConfigData(data_split="test")
     
     # 检查是否有mamba模型结果
     mamba_available = check_mamba_availability()
@@ -362,7 +385,7 @@ def valid_model(gpu_id: int):
     mid_dim = 128  # 从256改为128
     num_layers = 4  # 从8改为4
 
-    seq_data = SeqData(args=args, train_ratio=0.0)
+    seq_data = SeqData(args=args, train_ratio=0.0)  # train_ratio=0.0表示所有数据用于验证
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
 
@@ -374,17 +397,30 @@ def valid_model(gpu_id: int):
     net = RnnRegNet(inp_dim=input_dim, mid_dim=mid_dim, out_dim=label_dim, num_layers=num_layers).to(device)
     net.load_state_dict(th.load(predict_net_path, map_location=lambda storage, loc: storage))
 
+    # 检查验证数据是否为空
+    if seq_data.valid_seq_len == 0:
+        print("| Warning: No validation data available, skipping prediction generation")
+        return
+    
     predict_ary = np.empty_like(seq_data.valid_label_seq.cpu().numpy() if seq_data.valid_label_seq.is_cuda else seq_data.valid_label_seq.numpy())
     hid: Optional[TEN] = None
 
     seq_len = 2 ** 9
     print(f"| valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
-        seq_i1 = seq_i0 + seq_len
+        seq_i1 = min(seq_i0 + seq_len, seq_data.valid_seq_len)  # 确保不超出数据范围
+        actual_len = seq_i1 - seq_i0
+        
         inp = seq_data.valid_input_seq[seq_i0:seq_i1].to(device)
         out, hid = net.forward(inp[:, None, :], hid)
-        if hid is not None:
-            predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
+        if out is not None:
+            out_data = out.data.cpu().numpy().squeeze(1)
+            # 确保输出数据长度与实际序列长度匹配
+            if out_data.shape[0] >= actual_len:
+                predict_ary[seq_i0:seq_i1] = out_data[:actual_len]
+            else:
+                predict_ary[seq_i0:seq_i0+out_data.shape[0]] = out_data
+    
     np.save(predict_ary_path, predict_ary)
     print(f'| save predict in {predict_ary_path}')
 
@@ -399,7 +435,8 @@ def valid_mamba_model(gpu_id: int):
     num_layers = 4
 
     '''data'''
-    args = ConfigData()
+    # 使用测试数据配置
+    args = ConfigData(data_split="test")
     seq_data = SeqData(args=args, train_ratio=0.0)
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
@@ -421,11 +458,18 @@ def valid_mamba_model(gpu_id: int):
     seq_len = 2 ** 9
     print(f"| mamba valid_seq_len {seq_data.valid_seq_len}  valid_times {seq_data.valid_seq_len // seq_len}")
     for seq_i0 in range(0, seq_data.valid_seq_len, seq_len):
-        seq_i1 = seq_i0 + seq_len
+        seq_i1 = min(seq_i0 + seq_len, seq_data.valid_seq_len)  # 确保不超出数据范围
+        actual_len = seq_i1 - seq_i0
+        
         inp = seq_data.valid_input_seq[seq_i0:seq_i1]
         out, hid = net.forward(inp[:, None, :], hid)
         if out is not None:
-            predict_ary[seq_i0:seq_i1] = out.data.cpu().numpy().squeeze(1)
+            out_data = out.data.cpu().numpy().squeeze(1)
+            # 确保输出数据长度与实际序列长度匹配
+            if out_data.shape[0] >= actual_len:
+                predict_ary[seq_i0:seq_i1] = out_data[:actual_len]
+            else:
+                predict_ary[seq_i0:seq_i0+out_data.shape[0]] = out_data
     
     np.save(mamba_paths['predict_path'], predict_ary)
     print(f'| save mamba predict in {mamba_paths["predict_path"]}')
@@ -433,6 +477,10 @@ def valid_mamba_model(gpu_id: int):
 
 if __name__ == '__main__':
     GPU_ID = int(sys.argv[1]) if len(sys.argv) > 1 else -1  # Get GPU_ID from command line parameters
-    convert_btc_csv_to_btc_npy()  # Data preprocessing, using market information and code to generate weak factor Alpha101
+    
+    # 生成训练和测试数据
+    from data_processing.seq_data import generate_train_test_data
+    generate_train_test_data()  # 生成分离的训练和测试数据
+    
     train_model(gpu_id=GPU_ID)  # Using weak factor Alpha101 to train recurrent network RNN ​​(LSTM+GRU + Regression)
     valid_model(gpu_id=GPU_ID)  # Generate prediction results using the trained recurrent network and save them to the directory specified by ConfigData

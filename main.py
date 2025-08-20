@@ -106,7 +106,7 @@ def check_environment():
     
     return True
 
-def step1_data_preprocessing(gpu_id=-1):
+def step1_data_preprocessing(gpu_id=-1, force=False):
     """
     步骤1: 数据预处理和特征工程
     Step 1: Data preprocessing and feature engineering
@@ -116,31 +116,43 @@ def step1_data_preprocessing(gpu_id=-1):
     logger.info("=" * 60)
     
     try:
-        from data_processing.seq_data import convert_btc_csv_to_btc_npy
-        from data_processing.data_config import ConfigData
-        
-        # 检查是否已经存在预处理后的文件
-        config = ConfigData()
-        if (Path(config.input_ary_path).exists() and 
-            Path(config.label_ary_path).exists()):
-            logger.info("预处理文件已存在，跳过数据预处理步骤")
-            logger.info("Preprocessed files exist, skipping data preprocessing")
-            logger.info(f"输入文件: {config.input_ary_path}")
-            logger.info(f"标签文件: {config.label_ary_path}")
-            return True
+        from data_processing.seq_data import convert_btc_csv_to_btc_npy, ConfigData
         
         logger.info("开始数据预处理...")
         logger.info("Starting data preprocessing...")
+        logger.info("训练数据: 2017年1月1日 - 2024年6月30日")
+        logger.info("测试数据: 2024年7月1日 - 2024年12月31日")
         
-        # 执行数据预处理
-        convert_btc_csv_to_btc_npy()
+        # 检查是否需要重新生成数据
+        train_config = ConfigData(data_split="train")
+        test_config = ConfigData(data_split="test")
         
-        # 验证生成的文件
-        if (Path(config.input_ary_path).exists() and 
-            Path(config.label_ary_path).exists()):
+        train_files_exist = (Path(train_config.input_ary_path).exists() and 
+                           Path(train_config.label_ary_path).exists())
+        test_files_exist = (Path(test_config.input_ary_path).exists() and 
+                          Path(test_config.label_ary_path).exists())
+        
+        if force or not (train_files_exist and test_files_exist):
+            if force:
+                logger.info("强制重新生成训练和测试数据文件...")
+            else:
+                logger.info("数据文件不存在，开始生成训练和测试数据文件...")
+            convert_btc_csv_to_btc_npy()
+        else:
+            logger.info("数据文件已存在，跳过数据预处理步骤")
+        
+        # 重新验证文件存在性
+        train_files_exist = (Path(train_config.input_ary_path).exists() and 
+                           Path(train_config.label_ary_path).exists())
+        test_files_exist = (Path(test_config.input_ary_path).exists() and 
+                          Path(test_config.label_ary_path).exists())
+        
+        if train_files_exist and test_files_exist:
             logger.info("[OK] 数据预处理完成 / Data preprocessing completed")
-            logger.info(f"[OK] 输入特征文件: {config.input_ary_path}")
-            logger.info(f"[OK] 标签文件: {config.label_ary_path}")
+            logger.info(f"[OK] 训练输入文件: {train_config.input_ary_path}")
+            logger.info(f"[OK] 训练标签文件: {train_config.label_ary_path}")
+            logger.info(f"[OK] 测试输入文件: {test_config.input_ary_path}")
+            logger.info(f"[OK] 测试标签文件: {test_config.label_ary_path}")
             return True
         else:
             logger.error("[ERROR] 数据预处理完成但文件未生成")
@@ -163,21 +175,16 @@ def step2_factor_model_training(gpu_id=-1, force=False):
     
     try:
         from sequential_models.seq_run import train_model, valid_model
-        from data_processing.data_config import ConfigData
-        
-        config = ConfigData()
-        
-        # 检查是否已经存在训练好的模型（除非强制执行）
-        if not force and Path(config.predict_ary_path).exists():
-            logger.info("因子模型预测文件已存在，跳过训练步骤")
-            logger.info("Factor model prediction file exists, skipping training")
-            return True
+        from data_processing.seq_data import ConfigData
         
         logger.info("开始因子模型训练...")
         logger.info("Starting factor model training...")
+        logger.info("使用训练数据: 2017年1月1日 - 2024年6月30日")
+        if force:
+            logger.info("强制重新训练Mamba模型...")
         
-        # 训练模型
-        train_model(gpu_id=gpu_id)
+        # 根据force参数决定是否强制重新训练模型
+        train_model(gpu_id=gpu_id, force=force)
         
         logger.info("开始模型验证和预测生成...")
         logger.info("Starting model validation and prediction generation...")
@@ -207,17 +214,10 @@ def step3_reinforcement_learning_training(gpu_id=-1, force=False):
         from reinforcement_learning.erl_agent import AgentD3QN
         from trading_simulation.trade_simulator import TradeSimulator, EvalTradeSimulator
         
-        # 检查是否已经存在训练好的智能体（除非强制执行）
-        model_dirs = ["TradeSimulator-v0_D3QN_-1", "TradeSimulator-v0_D3QN_0"]
-        model_exists = any(Path(model_dir).exists() and any(Path(model_dir).iterdir()) for model_dir in model_dirs)
-        
-        if not force and model_exists:
-            logger.info("训练好的智能体已存在，跳过训练步骤")
-            logger.info("Trained agents exist, skipping training")
-            return True
-        
         logger.info("开始强化学习智能体训练...")
         logger.info("Starting reinforcement learning agent training...")
+        logger.info("使用训练数据: 2017年1月1日 - 2024年6月30日")
+        logger.info("强制重新训练强化学习智能体...")
         
         # 设置训练参数
         num_sims = 1024
@@ -287,6 +287,7 @@ def step4_model_evaluation(gpu_id=-1):
         
         logger.info("开始模型评估...")
         logger.info("Starting model evaluation...")
+        logger.info("使用测试数据: 2024年7月1日 - 2024年12月31日")
         
         save_path = "trained_agents"
         agent_list = [AgentD3QN, AgentDoubleDQN, AgentTwinD3QN]
@@ -312,14 +313,15 @@ def step5_ensemble_evaluation():
     logger.info("=" * 60)
     
     try:
-        import task2_ensemble
+        from ensemble_evaluation.task2_eval import main as eval_main
         
         logger.info("开始集成模型评估...")
         logger.info("Starting ensemble model evaluation...")
+        logger.info("使用测试数据: 2024年7月1日 - 2024年12月31日")
+        logger.info("生成性能图表和结果报告...")
         
-        # 运行集成评估
-        # 这里可以调用task2_ensemble中的具体函数
-        logger.info("集成模型评估模块已加载")
+        # 运行完整的评估和图表生成
+        eval_main()
         
         logger.info("[OK] 集成模型评估完成 / Ensemble evaluation completed")
         return True
@@ -334,7 +336,7 @@ def main():
     Main function
     """
     parser = argparse.ArgumentParser(description='加密货币高频交易强化学习系统')
-    parser.add_argument('--gpu_id', type=int, default=-1, help='GPU ID (-1 for CPU)')
+    parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID (-1 for CPU)')
     parser.add_argument('--step', type=str, default='all', 
                        choices=['all', '1', '2', '3', '4', '5'],
                        help='执行特定步骤 (1: 数据预处理, 2: 序列模型训练, 3: 强化学习训练, 4: 模型评估, 5: 集成评估)')
@@ -345,6 +347,10 @@ def main():
     
     logger.info("加密货币高频交易强化学习系统启动")
     logger.info("Cryptocurrency High-Frequency Trading RL System Starting")
+    if args.force:
+        logger.info("强制重新训练模式已启用 / Force retraining mode enabled")
+    logger.info("训练数据范围: 2017年1月1日 - 2024年6月30日")
+    logger.info("测试数据范围: 2024年7月1日 - 2024年12月31日")
     
     start_time = time.time()
     
@@ -362,7 +368,7 @@ def main():
     
     for step in steps_to_run:
         if step == '1':
-            if not step1_data_preprocessing(args.gpu_id):
+            if not step1_data_preprocessing(args.gpu_id, force=args.force):
                 logger.error("数据预处理失败，程序退出")
                 return
         elif step == '2':

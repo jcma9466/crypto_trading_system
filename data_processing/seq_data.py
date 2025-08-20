@@ -16,17 +16,32 @@ load_dotenv()
 
 
 class ConfigData:
-    def __init__(self, data_dir: str = "./data"):
+    def __init__(self, data_dir: str = "./data", data_split: str = "train"):
         self.data_dir = data_dir
+        self.data_split = data_split  # "train" or "test"
 
         # 修改为15分钟数据的CSV文件路径
         self.csv_path = f"{data_dir}/BTC_15m.csv"
         
-        # 修改为15分钟数据的文件路径
-        self.input_ary_path = f"{data_dir}/BTC_15m_input.npy"
-        self.label_ary_path = f"{data_dir}/BTC_15m_label.npy"
-        self.predict_ary_path = f"{data_dir}/BTC_15m_predict.npy"
-        self.predict_net_path = f"{data_dir}/BTC_15m_predict.pth"
+        # 根据数据分割类型设置不同的文件路径
+        if data_split == "train":
+            self.input_ary_path = f"{data_dir}/BTC_15m_train_input.npy"
+            self.label_ary_path = f"{data_dir}/BTC_15m_train_label.npy"
+            self.predict_ary_path = f"{data_dir}/BTC_15m_train_predict.npy"
+            self.predict_net_path = f"{data_dir}/BTC_15m_train_predict.pth"
+        else:  # test
+            self.input_ary_path = f"{data_dir}/BTC_15m_test_input.npy"
+            self.label_ary_path = f"{data_dir}/BTC_15m_test_label.npy"
+            self.predict_ary_path = f"{data_dir}/BTC_15m_test_predict.npy"
+            self.predict_net_path = f"{data_dir}/BTC_15m_test_predict.pth"
+        
+        # 日期范围配置
+        if data_split == "train":
+            self.start_date = "2017-01-01"
+            self.end_date = "2024-06-30"
+        else:  # test
+            self.start_date = "2024-07-01"
+            self.end_date = "2024-12-31"
         
         # 数据库配置
         self.db_host = os.getenv('DB_HOST')
@@ -1361,6 +1376,27 @@ def seq_to_label(ary, win_sizes=(10, 20, 40, 80, 160), if_print=False):
 """run"""
 
 
+def filter_data_by_date(df, start_date, end_date):
+    """根据日期范围过滤数据"""
+    # 检查可能的时间列名
+    time_column = None
+    if 'system_time' in df.columns:
+        time_column = 'system_time'
+    elif 'datetime' in df.columns:
+        time_column = 'datetime'
+    
+    if time_column:
+        # 确保时间列是datetime类型
+        df[time_column] = pd.to_datetime(df[time_column])
+        # 过滤日期范围
+        mask = (df[time_column] >= start_date) & (df[time_column] <= end_date)
+        filtered_df = df[mask].copy()
+        print(f"日期过滤: {start_date} 到 {end_date}, 使用列: {time_column}, 过滤后数据量: {len(filtered_df)}")
+        return filtered_df
+    else:
+        print("警告: 数据中没有找到时间列(system_time或datetime)，无法进行日期过滤")
+        return df
+
 def convert_btc_csv_to_btc_npy(args=ConfigData()):
     input_ary_path = args.input_ary_path
     label_ary_path = args.label_ary_path
@@ -1371,6 +1407,10 @@ def convert_btc_csv_to_btc_npy(args=ConfigData()):
         print(f"发现本地CSV文件，直接从CSV文件加载数据: {csv_path}")
         df = pd.read_csv(csv_path)
         print(f"从CSV文件加载了 {len(df)} 条数据")
+        
+        # 根据配置的日期范围过滤数据
+        df = filter_data_by_date(df, args.start_date, args.end_date)
+        print(f"数据分割类型: {args.data_split}, 过滤后数据量: {len(df)}")
     else:
         # 如果本地CSV文件不存在，才尝试从数据库加载数据
         print("本地CSV文件不存在，正在从PostgreSQL数据库加载BTC 15分钟K线数据...")
@@ -1380,6 +1420,9 @@ def convert_btc_csv_to_btc_npy(args=ConfigData()):
             raise FileNotFoundError(f"无法从数据库或CSV文件加载数据。CSV文件路径: {csv_path}")
         else:
             print(f"从数据库加载了 {len(df)} 条数据")
+            # 对数据库数据也进行日期过滤
+            df = filter_data_by_date(df, args.start_date, args.end_date)
+            print(f"数据分割类型: {args.data_split}, 过滤后数据量: {len(df)}")
     
     # 确保数据目录存在
     os.makedirs(args.data_dir, exist_ok=True)
@@ -1425,7 +1468,20 @@ def convert_btc_csv_to_btc_npy(args=ConfigData()):
     print(f"数据预处理完成！输入数据: {input_ary_path}, 标签数据: {label_ary_path}")
 
 
+def generate_train_test_data():
+    """生成训练和测试数据"""
+    print("=== 开始生成训练数据 (2017-2024年6月) ===")
+    train_config = ConfigData(data_split="train")
+    convert_btc_csv_to_btc_npy(train_config)
+    
+    print("\n=== 开始生成测试数据 (2024年7月-12月) ===")
+    test_config = ConfigData(data_split="test")
+    convert_btc_csv_to_btc_npy(test_config)
+    
+    print("\n=== 数据生成完成 ===")
+
 if __name__ == "__main__":
     # convert_csv_to_level5_csv()
     # check_btc_1s_csv()
-    convert_btc_csv_to_btc_npy()
+    # convert_btc_csv_to_btc_npy()  # 旧的单一数据生成方式
+    generate_train_test_data()  # 新的训练测试数据分别生成方式
