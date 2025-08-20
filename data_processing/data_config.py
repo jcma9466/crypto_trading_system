@@ -16,7 +16,7 @@ class ConfigData:
         # 修改为15分钟数据的文件路径
         self.input_ary_path = f"{data_dir}/BTC_15m_input.npy"
         self.label_ary_path = f"{data_dir}/BTC_15m_label.npy"
-        self.predict_ary_path = f"{data_dir}/BTC_15m_input.npy"  # 用于预测的输入数据
+        self.predict_ary_path = f"{data_dir}/BTC_15m_predict.npy"  # 预测结果文件
         self.predict_net_path = f"{data_dir}/BTC_15m_predict.pth"
         
         # 数据库配置

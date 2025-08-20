@@ -10,6 +10,10 @@ from numpy import abs
 from numpy import log
 from numpy import sign
 from scipy.stats import rankdata
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # 加载环境变量
 load_dotenv()
@@ -1427,21 +1431,26 @@ def convert_btc_csv_to_btc_npy(args=ConfigData()):
     # 确保数据目录存在
     os.makedirs(args.data_dir, exist_ok=True)
 
+    # 先生成标签数据以确定最终数据长度
+    price_ary = df["midpoint"].values
+    # 调整窗口大小以适应15分钟数据（相比1秒数据，窗口应该更小）
+    label_ary = seq_to_label(
+        ary=price_ary,
+        win_sizes=(4, 8, 12, 24, 32, 40, 80, 160),  # 适应15分钟数据的窗口大小
+        if_print=False
+    )
+    final_length = label_ary.shape[0]  # 获取标签数据的最终长度
+    print(f"标签数据长度: {final_length}")
+    
     if not os.path.exists(label_ary_path):
-        price_ary = df["midpoint"].values
-        # 调整窗口大小以适应15分钟数据（相比1秒数据，窗口应该更小）
-        label_ary = seq_to_label(
-            ary=price_ary,
-            win_sizes=(4, 8, 12, 24, 32, 40, 80, 160),  # 适应15分钟数据的窗口大小
-            if_print=False
-        )
         np.save(label_ary_path, label_ary)
         print(f"| save label array in {label_ary_path}")
 
     if not os.path.exists(input_ary_path):
         indicator = TechIndicator(df=df)
-
-        alpha_indices = [55, 100, 53, 52, 61, 80, 22, 97]
+        # [55, 100, 53, 52, 61, 80, 22, 97] 最早期选择的8个因子，保留历史记录
+        # [9, 10, 73, 94, 93, 49, 51, 87]  使用基于PCA分析推荐的8个最优alpha因子
+        alpha_indices = [100, 80, 22, 52, 9, 73, 93, 87]  # 基于实际计算的最新最优alpha因子
         alpha_arys = []
         timer0 = time.time()
         timer1 = time.time()
@@ -1462,6 +1471,14 @@ def convert_btc_csv_to_btc_npy(args=ConfigData()):
 
         alpha_arys = np.stack(alpha_arys, axis=1)
         alpha_arys = normalize_with_quantiles(alpha_arys).astype(np.float16)
+        
+        # 确保输入数据长度与标签数据长度一致
+        if alpha_arys.shape[0] > final_length:
+            alpha_arys = alpha_arys[-final_length:]  # 取最后final_length个样本
+            print(f"输入数据截取到长度: {alpha_arys.shape[0]}")
+        elif alpha_arys.shape[0] < final_length:
+            print(f"警告: 输入数据长度 {alpha_arys.shape[0]} 小于标签数据长度 {final_length}")
+        
         np.save(input_ary_path, alpha_arys)
         print(f"| save input array in {input_ary_path}")
         
@@ -1480,8 +1497,164 @@ def generate_train_test_data():
     
     print("\n=== 数据生成完成 ===")
 
+
+def perform_alpha_factor_pca_analysis(data_split="train"):
+    """Perform Principal Component Analysis on alpha factors"""
+    print(f"\n=== Starting PCA analysis on alpha factors for {data_split} data ===")
+    
+    # Load configuration
+    config = ConfigData(data_split=data_split)
+    
+    # Check if input data exists
+    if not os.path.exists(config.input_ary_path):
+        print(f"Error: Input data file does not exist: {config.input_ary_path}")
+        print("Please run data generation function first")
+        return
+    
+    # Load alpha factor data
+    print(f"Loading alpha factor data: {config.input_ary_path}")
+    alpha_data = np.load(config.input_ary_path)
+    print(f"Alpha factor data shape: {alpha_data.shape}")
+    print(f"Data type: {alpha_data.dtype}")
+    
+    # Check for NaN and infinite values
+    nan_count = np.isnan(alpha_data).sum()
+    inf_count = np.isinf(alpha_data).sum()
+    print(f"NaN count: {nan_count}")
+    print(f"Infinite values count: {inf_count}")
+    
+    # Clean data
+    alpha_data_clean = np.nan_to_num(alpha_data, nan=0.0, neginf=0.0, posinf=0.0)
+    
+    # Reshape data to 2D (samples, features)
+    n_samples, n_features = alpha_data_clean.shape
+    print(f"Number of samples: {n_samples}, Number of features (alpha factors): {n_features}")
+    
+    # Standardize data
+    print("\nStandardizing alpha factor data...")
+    scaler = StandardScaler()
+    alpha_data_scaled = scaler.fit_transform(alpha_data_clean)
+    
+    # Perform PCA analysis
+    print("\nPerforming Principal Component Analysis...")
+    pca = PCA()
+    alpha_data_pca = pca.fit_transform(alpha_data_scaled)
+    
+    # Analysis results
+    print("\n=== PCA Analysis Results ===")
+    print(f"Number of principal components: {len(pca.explained_variance_ratio_)}")
+    print(f"Explained variance ratio for each principal component:")
+    for i, ratio in enumerate(pca.explained_variance_ratio_):
+        print(f"  PC{i+1}: {ratio:.4f} ({ratio*100:.2f}%)")
+    
+    # Cumulative explained variance
+    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
+    print(f"\nCumulative explained variance ratio:")
+    for i, cum_ratio in enumerate(cumulative_variance):
+        print(f"  First {i+1} components: {cum_ratio:.4f} ({cum_ratio*100:.2f}%)")
+        if cum_ratio >= 0.95:  # Find number of components explaining 95% variance
+            print(f"  -> {i+1} components needed to explain 95% variance")
+            break
+    
+    # Create visualization charts
+    print("\nGenerating visualization charts...")
+    
+    # Set font for better display
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    # Create charts
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    fig.suptitle(f'Alpha Factor PCA Analysis Results ({data_split} data)', fontsize=16)
+    
+    # 1. Explained variance ratio bar chart
+    axes[0, 0].bar(range(1, min(11, len(pca.explained_variance_ratio_)+1)), 
+                   pca.explained_variance_ratio_[:10])
+    axes[0, 0].set_title('Explained Variance Ratio of First 10 Principal Components')
+    axes[0, 0].set_xlabel('Principal Component')
+    axes[0, 0].set_ylabel('Explained Variance Ratio')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # 2. Cumulative explained variance curve
+    axes[0, 1].plot(range(1, len(cumulative_variance)+1), cumulative_variance, 'bo-')
+    axes[0, 1].axhline(y=0.95, color='r', linestyle='--', label='95% Threshold')
+    axes[0, 1].set_title('Cumulative Explained Variance Ratio')
+    axes[0, 1].set_xlabel('Number of Principal Components')
+    axes[0, 1].set_ylabel('Cumulative Explained Variance Ratio')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # 3. Scatter plot of first two principal components
+    if alpha_data_pca.shape[1] >= 2:
+        scatter = axes[1, 0].scatter(alpha_data_pca[:, 0], alpha_data_pca[:, 1], 
+                                   alpha=0.6, s=1)
+        axes[1, 0].set_title('Distribution of First Two Principal Components')
+        axes[1, 0].set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)')
+        axes[1, 0].set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)')
+        axes[1, 0].grid(True, alpha=0.3)
+    
+    # 4. Principal component loadings heatmap
+    if n_features <= 20:  # Only show heatmap when feature count is not too large
+        loadings = pca.components_[:min(5, n_features), :].T
+        sns.heatmap(loadings, annot=True, cmap='coolwarm', center=0,
+                   xticklabels=[f'PC{i+1}' for i in range(loadings.shape[1])],
+                   yticklabels=[f'Alpha{i+1}' for i in range(n_features)],
+                   ax=axes[1, 1])
+        axes[1, 1].set_title('Principal Component Loadings Matrix (First 5 PCs)')
+    else:
+        axes[1, 1].text(0.5, 0.5, f'Too many features ({n_features})\nCannot display loadings heatmap', 
+                        ha='center', va='center', transform=axes[1, 1].transAxes)
+        axes[1, 1].set_title('Principal Component Loadings Matrix')
+    
+    plt.tight_layout()
+    
+    # Save charts
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
+    plot_path = f"{output_dir}/alpha_factors_pca_analysis_{data_split}.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Charts saved to: {plot_path}")
+    
+    # Save PCA results
+    pca_results = {
+        'explained_variance_ratio': pca.explained_variance_ratio_,
+        'cumulative_variance_ratio': cumulative_variance,
+        'components': pca.components_,
+        'transformed_data': alpha_data_pca,
+        'original_shape': alpha_data.shape,
+        'n_components_95': np.argmax(cumulative_variance >= 0.95) + 1
+    }
+    
+    pca_save_path = f"{output_dir}/alpha_factors_pca_results_{data_split}.npz"
+    np.savez(pca_save_path, **pca_results)
+    print(f"PCA results saved to: {pca_save_path}")
+    
+    # Display charts
+    plt.show()
+    
+    print(f"\n=== Alpha factor PCA analysis for {data_split} data completed ===")
+    
+    return pca_results
+
 if __name__ == "__main__":
     # convert_csv_to_level5_csv()
     # check_btc_1s_csv()
     # convert_btc_csv_to_btc_npy()  # 旧的单一数据生成方式
+    
+    # 生成训练和测试数据
     generate_train_test_data()  # 新的训练测试数据分别生成方式
+    
+    # 对alpha因子进行主成分分析
+    print("\n" + "="*50)
+    print("Starting Alpha Factor Principal Component Analysis")
+    print("="*50)
+    
+    # Perform PCA analysis on training data
+    train_pca_results = perform_alpha_factor_pca_analysis(data_split="train")
+    
+    # Perform PCA analysis on test data
+    test_pca_results = perform_alpha_factor_pca_analysis(data_split="test")
+
+    print("\n" + "="*50)
+    print("All analysis completed!")
+    print("="*50)
