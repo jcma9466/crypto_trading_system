@@ -34,6 +34,28 @@ class ProjectConfig:
         "label_ary_path": DATA_ROOT / "BTC_15m_label.npy",
         "predict_ary_path": DATA_ROOT / "BTC_15m_predict.npy",
         "predict_pth_path": DATA_ROOT / "BTC_15m_predict.pth",
+        # 训练数据文件路径
+        "train_input_ary_path": DATA_ROOT / "BTC_15m_train_input.npy",
+        "train_label_ary_path": DATA_ROOT / "BTC_15m_train_label.npy",
+        "train_predict_ary_path": DATA_ROOT / "BTC_15m_train_predict.npy",
+        # 测试数据文件路径
+        "test_input_ary_path": DATA_ROOT / "BTC_15m_test_input.npy",
+        "test_label_ary_path": DATA_ROOT / "BTC_15m_test_label.npy",
+        "test_predict_ary_path": DATA_ROOT / "BTC_15m_test_predict.npy",
+    }
+    
+    # 日期范围配置
+    DATE_RANGE_CONFIG = {
+        "train": {
+            "start_date": "2017-01-01",
+            "end_date": "2024-06-30",
+            "description": "训练数据时间范围：2017年1月1日至2024年6月30日"
+        },
+        "test": {
+            "start_date": "2024-07-01",
+            "end_date": "2024-12-31",
+            "description": "测试数据时间范围：2024年7月1日至2024年12月31日"
+        }
     }
     
     # 模型配置
@@ -110,6 +132,7 @@ class ProjectConfig:
         """
         config_map = {
             "data": cls.DATA_CONFIG,
+            "date_range": cls.DATE_RANGE_CONFIG,
             "model": cls.MODEL_CONFIG,
             "rl": cls.RL_CONFIG,
             "network": cls.NETWORK_CONFIG,
@@ -127,6 +150,7 @@ class ProjectConfig:
         """
         return {
             "data": cls.DATA_CONFIG,
+            "date_range": cls.DATE_RANGE_CONFIG,
             "model": cls.MODEL_CONFIG,
             "rl": cls.RL_CONFIG,
             "network": cls.NETWORK_CONFIG,
@@ -140,6 +164,7 @@ config = ProjectConfig()
 
 # 常用路径快捷方式
 DATA_PATHS = config.get_config("data")
+DATE_RANGES = config.get_config("date_range")
 MODEL_PATHS = config.get_config("model")
 RL_PARAMS = config.get_config("rl")
 NETWORK_PARAMS = config.get_config("network")

@@ -48,6 +48,9 @@ def train_mamba_model(gpu_id: int):
     weight_decay = 1e-4
     wup_dim = 64
     valid_gap = 32
+    
+    # 使用训练数据配置
+    args = ConfigData(data_split="train")
     num_patience = 16
     clip_grad_norm = 5
     out_dir = './output'
@@ -208,23 +211,36 @@ def _update_network(optimizer, obj, clip_grad_norm):
     optimizer.step()
 
 
-def train_model(gpu_id: int):
+def train_model(gpu_id: int, force: bool = True):
     device = th.device(f"cuda:{gpu_id}" if (th.cuda.is_available() and (gpu_id >= 0)) else "cpu")
     
     '''data'''
-    args = ConfigData()
+    # 使用训练数据配置
+    args = ConfigData(data_split="train")
     
-    # 检查mamba可用性和是否已有mamba结果
+    # 检查mamba可用性
     mamba_available = check_mamba_availability()
     mamba_paths = get_mamba_model_paths(args)
     
     if mamba_available:
-        # 检查是否已有mamba训练结果
-        if os.path.exists(mamba_paths['flag_path']) and os.path.exists(mamba_paths['net_path']):
+        if force:
+            # 强制重新训练，删除已有的训练标记和模型文件
+            if os.path.exists(mamba_paths['flag_path']):
+                os.remove(mamba_paths['flag_path'])
+                print("| Removed existing Mamba training flag")
+            if os.path.exists(mamba_paths['net_path']):
+                os.remove(mamba_paths['net_path'])
+                print("| Removed existing Mamba model")
+            if os.path.exists(mamba_paths['predict_path']):
+                os.remove(mamba_paths['predict_path'])
+                print("| Removed existing Mamba predictions")
+        
+        # 检查是否已有mamba训练结果（仅在非强制模式下）
+        if not force and os.path.exists(mamba_paths['flag_path']) and os.path.exists(mamba_paths['net_path']):
             print("| Mamba model already trained, skipping training")
             return
         else:
-            print("| Mamba available, using Mamba for training")
+            print("| Mamba available, starting training")
             train_mamba_model(gpu_id)
             return
     
@@ -341,7 +357,8 @@ def valid_model(gpu_id: int):
     th.set_grad_enabled(False)
 
     '''data'''
-    args = ConfigData()
+    # 使用测试数据配置
+    args = ConfigData(data_split="test")
     
     # 检查是否有mamba模型结果
     mamba_available = check_mamba_availability()
@@ -399,7 +416,8 @@ def valid_mamba_model(gpu_id: int):
     num_layers = 4
 
     '''data'''
-    args = ConfigData()
+    # 使用测试数据配置
+    args = ConfigData(data_split="test")
     seq_data = SeqData(args=args, train_ratio=0.0)
     input_dim = seq_data.input_dim
     label_dim = seq_data.label_dim
@@ -433,6 +451,10 @@ def valid_mamba_model(gpu_id: int):
 
 if __name__ == '__main__':
     GPU_ID = int(sys.argv[1]) if len(sys.argv) > 1 else -1  # Get GPU_ID from command line parameters
-    convert_btc_csv_to_btc_npy()  # Data preprocessing, using market information and code to generate weak factor Alpha101
+    
+    # 生成训练和测试数据
+    from data_processing.seq_data import generate_train_test_data
+    generate_train_test_data()  # 生成分离的训练和测试数据
+    
     train_model(gpu_id=GPU_ID)  # Using weak factor Alpha101 to train recurrent network RNN ​​(LSTM+GRU + Regression)
     valid_model(gpu_id=GPU_ID)  # Generate prediction results using the trained recurrent network and save them to the directory specified by ConfigData

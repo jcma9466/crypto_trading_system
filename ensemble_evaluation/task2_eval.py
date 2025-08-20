@@ -19,21 +19,24 @@ from improved_trading_strategy import (
 
 # 导入基准模型和图片生成模块
 try:
-    from benchmark_models import run_benchmark_comparison
+    from .benchmark_models import run_benchmark_comparison
 except ImportError:
-    print("Warning: benchmark_models.py not found. Benchmark comparison will be skipped.")
-    run_benchmark_comparison = None
+    try:
+        from ensemble_evaluation.benchmark_models import run_benchmark_comparison
+    except ImportError:
+        print("Warning: benchmark_models.py not found. Benchmark comparison will be skipped.")
+        run_benchmark_comparison = None
 
 try:
-    from generate_article_figures import generate_all_article_figures
+    from utils.generate_article_figures import generate_all_article_figures
 except ImportError:
-    print("Warning: generate_article_figures.py not found. Figure generation will be skipped.")
+    print("Warning: utils.generate_article_figures not found. Figure generation will be skipped.")
     generate_all_article_figures = None
 
 try:
-    from data_config import ConfigData
+    from data_processing.seq_data import ConfigData
 except ImportError:
-    print("Warning: data_config.py not found. Using fallback configuration.")
+    print("Warning: data_processing.seq_data not found. Using fallback configuration.")
     ConfigData = None
 
 
@@ -387,8 +390,8 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
     print(f"\nInitializing evaluation...")
     
     # 检查数据配置
-    from data_processing.data_config import ConfigData
-    config_data = ConfigData()
+    from data_processing.seq_data import ConfigData
+    config_data = ConfigData(data_split="test")
     print(f"\nData Configuration:")
     print(f"Factor array path: {os.path.abspath(config_data.predict_ary_path)}")
     print(f"Price data path: {os.path.abspath(config_data.csv_path)}")
@@ -426,7 +429,10 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
     step_gap = 16
     slippage = 7e-7
 
-    max_step = (64000 - num_ignore_step) // step_gap
+    # 基于实际数据长度计算max_step，而不是硬编码的64000
+    # 使用BTC_15m_input.npy的实际长度280038
+    actual_data_length = 280038
+    max_step = (actual_data_length - num_ignore_step) // step_gap
 
     env_args = {
         "env_name": "TradeSimulator-v0",
@@ -468,7 +474,7 @@ def run_benchmark_evaluation():
     if ConfigData is None:
         print("Error: data_config module not available")
         return None
-    config_data = ConfigData()
+    config_data = ConfigData(data_split="test")
     
     # 加载价格数据
     try:
