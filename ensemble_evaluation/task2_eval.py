@@ -205,7 +205,8 @@ class EnsembleEvaluator:
             positions.append(trade_env.position)
 
             # Manually compute cumulative returns
-            mid_price = trade_env.price_ary[trade_env.step_i, 2]
+            safe_idx = min(int(trade_env.step_i), trade_env.price_ary.shape[0] - 1)
+            mid_price = trade_env.price_ary[safe_idx, 2]
             # 确保 mid_price 是 tensor 类型，如果不是则转换
             if not torch.is_tensor(mid_price):
                 mid_price = torch.tensor(mid_price, device=self.device)
@@ -429,10 +430,16 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
     step_gap = 16
     slippage = 7e-7
 
-    # 基于实际数据长度计算max_step，而不是硬编码的64000
-    # 使用BTC_15m_input.npy的实际长度280038
-    actual_data_length = 280038
-    max_step = (actual_data_length - num_ignore_step) // step_gap
+    # 基于实际数据长度计算max_step，使用预测因子数组的真实长度以确保与price_ary对齐
+    try:
+        factor_len = np.load(config_data.predict_ary_path, mmap_mode="r").shape[0]
+        print(f"Detected factor length from {config_data.predict_ary_path}: {factor_len}")
+        # 由于 step_i 按 step_gap 递增，确保最大索引不越界（索引范围 0..factor_len-1）
+        max_step = max(1, (max(0, factor_len - 1)) // step_gap)
+    except Exception as e:
+        print(f"Warning: Failed to load factor array length to compute max_step: {e}")
+        # 回退到保守估计，避免越界
+        max_step = 10000
 
     env_args = {
         "env_name": "TradeSimulator-v0",

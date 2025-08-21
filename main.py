@@ -313,7 +313,8 @@ def step5_ensemble_evaluation():
     logger.info("=" * 60)
     
     try:
-        from ensemble_evaluation.task2_eval import main as eval_main
+        from ensemble_evaluation.task2_eval import run_complete_evaluation
+        from reinforcement_learning.erl_agent import AgentD3QN, AgentDoubleDQN, AgentTwinD3QN
         
         logger.info("开始集成模型评估...")
         logger.info("Starting ensemble model evaluation...")
@@ -321,7 +322,9 @@ def step5_ensemble_evaluation():
         logger.info("生成性能图表和结果报告...")
         
         # 运行完整的评估和图表生成
-        eval_main()
+        save_path = "trained_agents"
+        agent_list = [AgentD3QN, AgentDoubleDQN, AgentTwinD3QN]
+        run_complete_evaluation(save_path, agent_list, include_benchmarks=True)
         
         logger.info("[OK] 集成模型评估完成 / Ensemble evaluation completed")
         return True
