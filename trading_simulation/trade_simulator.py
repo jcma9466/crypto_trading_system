@@ -7,7 +7,7 @@ from collections import deque
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from data_processing.data_config import ConfigData
+from data_processing.seq_data import ConfigData
 from reinforcement_learning.erl_config import Config, build_env
 from improved_trading_strategy import RiskAdjustedReward, EnhancedStateSpace
 
@@ -23,6 +23,7 @@ class TradeSimulator:
         num_ignore_step=60,
         device=th.device("cpu"),
         gpu_id=-1,
+        data_split="train",
     ):
         self.device = th.device(f"cuda:{gpu_id}") if gpu_id >= 0 else device
         self.num_sims = num_sims
@@ -35,11 +36,15 @@ class TradeSimulator:
         self.sim_ids = th.arange(self.num_sims, device=self.device)
 
         """config"""
-        args = ConfigData()
+        args = ConfigData(data_split=data_split)
 
-        """load data"""
-        self.factor_ary = np.load(args.predict_ary_path)
-        self.factor_ary = th.tensor(self.factor_ary, dtype=th.float32)  # CPU
+        """load data (优化内存使用)"""
+        # 延迟加载，只在需要时加载到GPU
+        factor_data = np.load(args.predict_ary_path)
+        # 如果数据太大，可以考虑只加载部分数据进行快速测试
+        if factor_data.shape[0] > 100000:  # 如果数据点超过10万，截取最近的数据
+            factor_data = factor_data[-100000:]
+        self.factor_ary = th.tensor(factor_data, dtype=th.float32)  # CPU
 
         # 优先检查本地CSV文件是否存在
         if os.path.exists(args.csv_path):
@@ -56,15 +61,18 @@ class TradeSimulator:
             else:
                 print(f"从数据库加载了 {len(data_df)} 条数据")
         
-        self.price_ary = data_df[["bids_distance_3", "asks_distance_3", "midpoint"]].values
-        self.price_ary[:, 0] = self.price_ary[:, 2] * (1 + self.price_ary[:, 0])
-        self.price_ary[:, 1] = self.price_ary[:, 2] * (1 + self.price_ary[:, 1])
+        # 优化价格数据处理
+        price_data = data_df[["bids_distance_3", "asks_distance_3", "midpoint"]].values
+        # 如果数据太大，同样截取
+        if price_data.shape[0] > 100000:
+            price_data = price_data[-100000:]
+        
+        price_data[:, 0] = price_data[:, 2] * (1 + price_data[:, 0])
+        price_data[:, 1] = price_data[:, 2] * (1 + price_data[:, 1])
 
         """Align with the rear of the dataset instead"""
-        # self.price_ary = self.price_ary[: self.factor_ary.shape[0], :]
-        self.price_ary = self.price_ary[-self.factor_ary.shape[0] :, :]
-
-        self.price_ary = th.tensor(self.price_ary, dtype=th.float32)  # CPU
+        price_data = price_data[-self.factor_ary.shape[0] :, :]
+        self.price_ary = th.tensor(price_data, dtype=th.float32)  # CPU
 
         self.seq_len = 3600
         self.full_seq_len = self.price_ary.shape[0]
@@ -79,13 +87,16 @@ class TradeSimulator:
         self.position = th.zeros((num_sims,), dtype=th.long, device=device)
         self.holding = th.zeros((num_sims,), dtype=th.long, device=device)
         self.empty_count = th.zeros((num_sims,), dtype=th.long, device=device)
+        
+        # 添加缺失的max_holding属性
+        self.max_holding = 100  # 设置合理的最大持仓时间
 
         self.cash = th.zeros((num_sims,), dtype=th.float32, device=device)
         self.asset = th.zeros((num_sims,), dtype=th.float32, device=device)
 
         # environment information
         self.env_name = "TradeSimulator-v0"
-        self.state_dim = 8 + 2  # factor_dim + (position, holding)
+        self.state_dim = self.factor_ary.shape[1] + 2  # factor_dim + (position, holding)
         self.action_dim = 3  # short, nothing, long
         self.if_discrete = True
         # 默认max_step，可能会被外部设置覆盖
@@ -230,19 +241,21 @@ class TradeSimulator:
         else:
             volatility = 0.01
         
-        # 快速向量化奖励计算（避免Python循环）
-        # 基础收益率（向量化）
-        raw_return = th.where(old_asset > 0, (new_asset - old_asset) / old_asset, th.zeros_like(old_asset))
-        
-        # 交易成本（向量化）
-        position_change = th.abs(new_position - old_position)
-        transaction_cost = position_change * 0.0005  # 简化的交易成本
-        
-        # 风险惩罚（向量化）
-        risk_penalty = volatility * 0.1 * th.abs(action_int.float()) * 0.1
-        
-        # 简化奖励（移除昂贵的夏普比率和numpy转换）
-        reward = raw_return - transaction_cost - risk_penalty
+        # 使用改进的风险调整奖励函数
+        reward = th.zeros_like(new_asset)
+        for i in range(self.num_sims):
+            old_asset_val = old_asset[i].item()
+            new_asset_val = new_asset[i].item()
+            action_val = action_int[i].item()
+            position_change = abs((new_position[i] - old_position[i]).item())
+            
+            if old_asset_val > 0:
+                reward_val = self.reward_calculator.calculate_reward(
+                    old_asset_val, new_asset_val, action_val, volatility, position_change
+                )
+                reward[i] = reward_val
+            else:
+                reward[i] = 0.0
 
         self.cash = new_cash  # update the cash
         self.asset = new_asset  # update the total asset

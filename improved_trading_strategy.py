@@ -166,7 +166,7 @@ class RiskAdjustedReward:
         
     def calculate_reward(self, old_asset: float, new_asset: float, action: int, 
                         volatility: float, position_change: float) -> float:
-        """计算风险调整奖励"""
+        """计算平衡的风险调整奖励"""
         if old_asset <= 0:
             return 0.0
         
@@ -174,11 +174,11 @@ class RiskAdjustedReward:
         raw_return = (new_asset - old_asset) / old_asset
         self.return_history.append(raw_return)
         
-        # 交易成本惩罚
-        transaction_cost = abs(position_change) * self.transaction_cost_rate
+        # 降低交易成本惩罚，使卖出动作更有吸引力
+        transaction_cost = abs(position_change) * self.transaction_cost_rate * 0.5
         
-        # 风险惩罚（基于波动性）
-        risk_penalty = volatility * self.risk_aversion * abs(position_change)
+        # 降低风险惩罚，特别是对卖出动作
+        risk_penalty = volatility * self.risk_aversion * abs(position_change) * 0.3
         
         # 夏普比率奖励
         sharpe_bonus = 0.0
@@ -188,13 +188,22 @@ class RiskAdjustedReward:
                 sharpe_ratio = np.mean(returns_array) / np.std(returns_array)
                 sharpe_bonus = max(0, sharpe_ratio) * 0.1
         
-        # 持仓时间奖励（鼓励适度持仓）
-        holding_bonus = 0.0
-        if abs(position_change) < 0.1:  # 小幅调整或持仓
-            holding_bonus = 0.001
+        # 动作多样性奖励 - 鼓励所有类型的动作
+        action_diversity_bonus = 0.0
+        if action == -1:  # 卖出动作额外奖励
+            action_diversity_bonus = 0.002
+        elif action == 1:  # 买入动作
+            action_diversity_bonus = 0.001
+        else:  # 持有动作
+            action_diversity_bonus = 0.001
+        
+        # 趋势跟随奖励 - 根据收益方向给予额外奖励
+        trend_bonus = 0.0
+        if raw_return > 0:
+            trend_bonus = 0.001  # 盈利时的额外奖励
         
         # 综合奖励
-        total_reward = raw_return - transaction_cost - risk_penalty + sharpe_bonus + holding_bonus
+        total_reward = raw_return - transaction_cost - risk_penalty + sharpe_bonus + action_diversity_bonus + trend_bonus
         
         return total_reward
 
@@ -287,7 +296,8 @@ class ConfidenceBasedEnsemble:
     def __init__(self, num_agents: int = 3):
         self.num_agents = num_agents
         self.performance_history = {i: deque(maxlen=100) for i in range(num_agents)}
-        self.confidence_threshold = 0.3  # 降低置信度阈值
+        self.confidence_threshold = 0.15  # 进一步降低置信度阈值以允许更多卖出信号
+        self.confidence_history = []  # 记录所有置信度数据
         
     def update_performance(self, agent_id: int, performance: float):
         """更新智能体性能历史"""
@@ -312,6 +322,9 @@ class ConfidenceBasedEnsemble:
         if len(actions) != self.num_agents or len(confidences) != self.num_agents:
             return 0  # 默认持仓
         
+        # 记录置信度数据
+        self.confidence_history.append(confidences.copy())
+        
         # 获取动态权重
         weights = self.calculate_dynamic_weights()
         
@@ -332,6 +345,10 @@ class ConfidenceBasedEnsemble:
             return 0
         
         return best_action
+    
+    def get_confidence_history(self) -> List[List[float]]:
+        """获取置信度历史"""
+        return self.confidence_history
 
 class DynamicStopLoss:
     """动态止损管理"""

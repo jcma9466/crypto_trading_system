@@ -199,7 +199,7 @@ def step2_factor_model_training(gpu_id=-1, force=False):
         logger.error(f"因子模型训练失败 / Factor model training failed: {e}")
         return False
 
-def step3_reinforcement_learning_training(gpu_id=-1, force=False):
+def step3_reinforcement_learning_training(gpu_id=0, force=False):
     """
     步骤3: 强化学习智能体训练
     Step 3: Reinforcement learning agent training
@@ -219,13 +219,13 @@ def step3_reinforcement_learning_training(gpu_id=-1, force=False):
         logger.info("使用训练数据: 2017年1月1日 - 2024年6月30日")
         logger.info("强制重新训练强化学习智能体...")
         
-        # 设置训练参数
-        num_sims = 1024
+        # 设置训练参数（优化初始化性能）
+        num_sims = 8  # 使用最小化参数以确保快速初始化
         num_ignore_step = 60
-        max_position = 10
+        max_position = 1
         step_gap = 2
-        slippage = 3e-7
-        max_step = (4800 - num_ignore_step) // step_gap
+        slippage = 7e-7
+        max_step = 500  # 使用固定的较小步数
         
         env_args = {
             "env_name": "TradeSimulator-v0",
@@ -246,11 +246,11 @@ def step3_reinforcement_learning_training(gpu_id=-1, force=False):
         args.random_seed = gpu_id
         args.gamma = 0.995
         args.learning_rate = 1e-5
-        args.batch_size = 256
-        args.break_step = int(8e4)
-        args.buffer_size = int(max_step * 32)
-        args.repeat_times = 2
-        args.horizon_len = int(max_step * 4)
+        args.batch_size = 32  # 进一步减少批次大小
+        args.break_step = int(2e3)  # 大幅减少训练步数
+        args.buffer_size = int(max_step * 4)  # 进一步减少缓冲区大小
+        args.repeat_times = 1  # 减少重复次数
+        args.horizon_len = int(max_step * 2)  # 减少horizon长度
         args.eval_per_step = int(max_step)
         args.num_workers = 1
         args.save_gap = 8
@@ -339,7 +339,7 @@ def main():
     Main function
     """
     parser = argparse.ArgumentParser(description='加密货币高频交易强化学习系统')
-    parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID (-1 for CPU)')
+    parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID (-1 for CPU, 0 for first GPU)')
     parser.add_argument('--step', type=str, default='all', 
                        choices=['all', '1', '2', '3', '4', '5'],
                        help='执行特定步骤 (1: 数据预处理, 2: 序列模型训练, 3: 强化学习训练, 4: 模型评估, 5: 集成评估)')

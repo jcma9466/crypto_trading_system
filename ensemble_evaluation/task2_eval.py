@@ -112,6 +112,8 @@ class EnsembleEvaluator:
             num_agents=len(agent_classes)
         )
         
+
+        
         # 价格历史记录（用于计算波动性）
         self.price_history = deque(maxlen=100)
     
@@ -170,6 +172,10 @@ class EnsembleEvaluator:
         action_ints = []
         correct_pred = []
         current_btcs = [self.current_btc]
+        
+        # 初始化交易计数器
+        act1 = 0  # 买入计数
+        act2 = 0  # 卖出计数
 
         for _ in range(trade_env.max_step-1):
             actions = []
@@ -215,8 +221,6 @@ class EnsembleEvaluator:
             mid_price_value = mid_price.item()
 
             new_cash = self.cash[-1]
-            act1=0
-            act2=0
             # 更新价格历史
             self.price_history.append(mid_price_value)
             
@@ -270,16 +274,31 @@ class EnsembleEvaluator:
                     
             elif action_int < 0:  # Sell signal
                 act2 += 1
-                # 计算可卖出的BTC数量
-                btc_to_sell = min(abs(self.current_btc), position_size / mid_price_value)
+                print(f"\n=== SELL SIGNAL TRIGGERED ===")
+                print(f"Current BTC holdings: {self.current_btc:.6f}")
+                print(f"Current price: {mid_price_value:.2f}")
+                print(f"Position size: {position_size:.2f}")
+                
+                # 修正卖出逻辑：使用与买入相同的position_size逻辑，但基于当前BTC价值
+                # 计算目标卖出金额（与买入使用相同的position_size计算）
+                target_sell_value = position_size
+                print(f"Target sell value: {target_sell_value:.2f}")
+                
+                # 计算可卖出的BTC数量（基于目标卖出金额）
+                btc_to_sell = min(self.current_btc, target_sell_value / mid_price_value)
+                print(f"BTC to sell: {btc_to_sell:.6f}")
+                print(f"Minimum trade threshold (0.001): {btc_to_sell > 0.001}")
                 
                 if btc_to_sell > 0.001:  # 最小交易量
                     trade_value = btc_to_sell * mid_price_value * (1 - slippage)
                     new_cash += trade_value
                     self.current_btc -= btc_to_sell
-                    print(f"Dynamic SELL: {btc_to_sell:.4f} BTC at {mid_price_value:.2f}, value={trade_value:.2f}, confidence={avg_confidence:.3f}")
+                    print(f"✓ SELL EXECUTED: {btc_to_sell:.4f} BTC at {mid_price_value:.2f}, value={trade_value:.2f}, confidence={avg_confidence:.3f}")
+                    print(f"New BTC holdings: {self.current_btc:.6f}")
+                    print(f"New cash: {new_cash:.2f}")
                 else:
-                    print(f"Insufficient BTC for dynamic sell: have {self.current_btc:.4f} BTC")
+                    print(f"✗ SELL BLOCKED: Insufficient BTC for dynamic sell: have {self.current_btc:.6f} BTC, need > 0.001")
+                print(f"=== END SELL SIGNAL ===")
 
 
             self.cash.append(new_cash)
@@ -331,6 +350,14 @@ class EnsembleEvaluator:
         np.save(f"{self.save_path}_net_assets.npy", np.array(self.net_assets, dtype=np.float64))
         np.save(f"{self.save_path}_btc_positions.npy", np.array(self.btc_assets, dtype=np.float64))
         np.save(f"{self.save_path}_correct_predictions.npy", np.array(correct_pred, dtype=np.int32))
+        
+        # Save confidence data for analysis
+        confidence_history = self.confidence_ensemble.get_confidence_history()
+        if confidence_history:
+            np.save(f"{self.save_path}_confidences.npy", np.array(confidence_history, dtype=np.float64))
+            print(f"Saved {len(confidence_history)} confidence records")
+        else:
+            print("No confidence data to save")
 
         # Compute metrics
         # 在计算指标之前添加调试信息
@@ -434,8 +461,9 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
     try:
         factor_len = np.load(config_data.predict_ary_path, mmap_mode="r").shape[0]
         print(f"Detected factor length from {config_data.predict_ary_path}: {factor_len}")
-        # 由于 step_i 按 step_gap 递增，确保最大索引不越界（索引范围 0..factor_len-1）
-        max_step = max(1, (max(0, factor_len - 1)) // step_gap)
+        # 使用更多数据进行回测，减去num_ignore_step后除以step_gap
+        max_step = max(1, (factor_len - num_ignore_step) // step_gap)
+        print(f"Calculated max_step: {max_step} (factor_len: {factor_len}, num_ignore_step: {num_ignore_step}, step_gap: {step_gap})")
     except Exception as e:
         print(f"Warning: Failed to load factor array length to compute max_step: {e}")
         # 回退到保守估计，避免越界
@@ -445,7 +473,7 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
         "env_name": "TradeSimulator-v0",
         "num_envs": num_sims,
         "max_step": max_step,
-        "state_dim": 8 + 2,
+        "state_dim": 5 + 2,  # factor_dim + (position, holding)
         "action_dim": 3,
         "if_discrete": True,
         "max_position": max_position,
@@ -453,6 +481,7 @@ def run_evaluation(save_path, agent_list, gpu_id=-1):
         "num_sims": num_sims,
         "step_gap": step_gap,
         "dataset_path": config_data.csv_path,  # 使用配置中的路径
+        "data_split": "test",  # 确保使用测试数据
     }
     args = Config(agent_class=None, env_class=EvalTradeSimulator, env_args=env_args)
     args.gpu_id = gpu_id

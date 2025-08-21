@@ -122,40 +122,37 @@ class QNetTwinDuel(QNetBase):  # D3QN: Dueling Double DQN
         value = q_val - q_val.mean(dim=1, keepdim=True) + q_adv
         value = self.value_re_norm(value)
         
+        # Add exploration bonus to encourage action diversity
+        if hasattr(self, 'action_counts'):
+            # Encourage less frequent actions
+            total_actions = sum(self.action_counts.values()) + 1e-8
+            for action_idx in range(self.action_dim):
+                action_freq = self.action_counts.get(action_idx, 0) / total_actions
+                # Add bonus to less frequent actions
+                exploration_bonus = 0.1 * (1.0 - action_freq)
+                value[:, action_idx] += exploration_bonus
+        
         if self.explore_rate < torch.rand(1):
             action = value.argmax(dim=1, keepdim=True)
         else:
-            action = torch.randint(self.action_dim, size=(state.shape[0], 1))
-        return action
+            # Use weighted random selection to encourage action diversity
+            if hasattr(self, 'action_counts'):
+                total_actions = sum(self.action_counts.values()) + 1e-8
+                weights = torch.tensor([
+                    1.0 - (self.action_counts.get(i, 0) / total_actions) + 0.1
+                    for i in range(self.action_dim)
+                ], device=state.device)
+                weights = weights / weights.sum()
+                action = torch.multinomial(weights.unsqueeze(0).repeat(state.shape[0], 1), 1)
+            else:
+                action = torch.randint(self.action_dim, size=(state.shape[0], 1), device=state.device)
         
-        if self.last_actions is None:
-            self.last_actions = torch.ones(batch_size, 1, device=state.device)
-            self.last_action_time = torch.zeros(batch_size, 1, device=state.device)
+        # Update action counts for diversity tracking
+        if not hasattr(self, 'action_counts'):
+            self.action_counts = {i: 0 for i in range(self.action_dim)}
         
-        # Calculate holding time
-        hold_time = current_step - self.last_action_time
-        
-        # Create action mask to prevent rapid position flipping
-        mask = torch.ones_like(q_val)
-        for i in range(batch_size):
-            if hold_time[i] < self.min_hold_steps:
-                if self.last_actions[i] == 0:
-                    mask[i, 2] = float('-1e9')  
-                elif self.last_actions[i] == 2:
-                    mask[i, 0] = float('-1e9') 
-        
-        q_val = q_val + mask
-        
-        if self.explore_rate < torch.rand(1):
-            action = q_val.argmax(dim=1, keepdim=True)
-        else:
-            action = torch.randint(self.action_dim, size=(state.shape[0], 1), device=state.device)
-        
-        # Update trade statistics and history
-        for a in action.to(self.trade_counts.device):  # Ensure device matching
-            self.trade_counts[a] += 1
-        self.last_actions = action
-        self.last_action_time = current_step
+        for a in action.flatten():
+            self.action_counts[a.item()] += 1
         
         return action
 

@@ -471,13 +471,13 @@ def run():
 
     from .erl_agent import AgentD3QN
 
-    num_sims = 512
+    num_sims = 8  # 使用最小化参数以确保快速初始化
     num_ignore_step = 60
     max_position = 1
     step_gap = 2
     slippage = 7e-7
 
-    max_step = (4800 - num_ignore_step) // step_gap
+    max_step = 500  # 使用固定的较小步数
 
     env_args = {
         "env_name": "TradeSimulator-v0",
@@ -507,12 +507,11 @@ def run():
     args.state_value_tau = 0.01
     args.soft_update_tau = 2e-6
     args.learning_rate = 2e-6
-    args.batch_size = 512
-    args.break_step = int(32e4)
-    args.break_step = int(8e4)
-    args.buffer_size = int(max_step * 32)
-    args.repeat_times = 2
-    args.horizon_len = int(max_step * 4)
+    args.batch_size = 32  # 进一步减少批次大小
+    args.break_step = int(2e3)  # 大幅减少训练步数
+    args.buffer_size = int(max_step * 4)  # 进一步减少缓冲区大小
+    args.repeat_times = 1  # 减少重复次数
+    args.horizon_len = int(max_step * 2)  # 减少horizon长度
     args.eval_per_step = int(max_step)
     args.num_workers = 1
     args.save_gap = 8

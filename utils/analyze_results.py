@@ -50,7 +50,10 @@ def plot_equity_and_positions(save_path="trained_agents", secondary_axis=False):
         print(f"[WARN] Failed to read BTC positions file: {btc_positions_path}, error: {e}")
         return
 
-    steps = np.arange(len(net_assets))
+    # Create time series index for plotting
+    # 考虑step_gap=16，每个交易步骤代表16个15分钟间隔
+    step_gap = 16  # 从task2_eval.py中获取的step_gap值
+    timestamps = pd.date_range(start='2024-07-01', periods=len(net_assets), freq=f'{15*step_gap}min')
 
     plt.style.use('seaborn-v0_8-whitegrid')
 
@@ -58,14 +61,14 @@ def plot_equity_and_positions(save_path="trained_agents", secondary_axis=False):
         fig, ax1 = plt.subplots(figsize=(14, 6))
         color1 = '#1f77b4'
         color2 = '#d62728'
-        ln1 = ax1.plot(steps, net_assets, color=color1, label='Equity', linewidth=1.5)
-        ax1.set_xlabel('Step', fontproperties=font)
+        ln1 = ax1.plot(timestamps, net_assets, color=color1, label='Equity', linewidth=1.5)
+        ax1.set_xlabel('Time', fontproperties=font)
         ax1.set_ylabel('Net Asset Value', color=color1, fontproperties=font)
         ax1.tick_params(axis='y', labelcolor=color1)
         ax1.grid(True, alpha=0.3)
 
         ax2 = ax1.twinx()
-        ln2 = ax2.plot(steps, btc_positions, color=color2, label='BTC Holdings', linewidth=1.2, alpha=0.8)
+        ln2 = ax2.plot(timestamps, btc_positions, color=color2, label='BTC Holdings', linewidth=1.2, alpha=0.8)
         ax2.set_ylabel('BTC Holdings', color=color2, fontproperties=font)
         ax2.tick_params(axis='y', labelcolor=color2)
 
@@ -77,14 +80,14 @@ def plot_equity_and_positions(save_path="trained_agents", secondary_axis=False):
         plt.tight_layout()
     else:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
-        ax1.plot(steps, net_assets, color='#1f77b4', linewidth=1.5)
+        ax1.plot(timestamps, net_assets, color='#1f77b4', linewidth=1.5)
         ax1.set_title('Equity Curve', fontproperties=font)
         ax1.set_ylabel('Net Asset Value', fontproperties=font)
         ax1.grid(True, alpha=0.3)
 
-        ax2.plot(steps, btc_positions, color='#d62728', linewidth=1.2)
+        ax2.plot(timestamps, btc_positions, color='#d62728', linewidth=1.2)
         ax2.set_title('Position Changes (BTC Holdings)', fontproperties=font)
-        ax2.set_xlabel('Step', fontproperties=font)
+        ax2.set_xlabel('Time', fontproperties=font)
         ax2.set_ylabel('BTC Holdings', fontproperties=font)
         ax2.grid(True, alpha=0.3)
 
@@ -107,13 +110,51 @@ def analyze_trading_results(save_path="trained_agents"):
     font = _setup_fonts()
     
     # Load saved data
-    positions = np.load(f"{save_path}_positions.npy", allow_pickle=True)
-    net_assets = np.load(f"{save_path}_net_assets.npy")
-    btc_positions = np.load(f"{save_path}_btc_positions.npy")
-    correct_predictions = np.load(f"{save_path}_correct_predictions.npy")
+    try:
+        positions = np.load(f"{save_path}_positions.npy", allow_pickle=True)
+        net_assets = np.load(f"{save_path}_net_assets.npy")
+        btc_positions = np.load(f"{save_path}_btc_positions.npy")
+        correct_predictions = np.load(f"{save_path}_correct_predictions.npy")
+        print(f"Data loaded successfully:")
+        print(f"  - net_assets shape: {net_assets.shape}")
+        print(f"  - positions shape: {positions.shape}")
+        print(f"  - btc_positions shape: {btc_positions.shape}")
+        print(f"  - correct_predictions shape: {correct_predictions.shape}")
+    except Exception as e:
+        print(f"Error loading data files: {e}")
+        return None
     
-    # Create time series index
-    time_steps = np.arange(len(net_assets))
+    # Create time series index based on net_assets length
+    # 考虑step_gap=16，每个交易步骤代表16个15分钟间隔
+    time_steps = len(net_assets)
+    step_gap = 16  # 从task2_eval.py中获取的step_gap值
+    time_index = pd.date_range(start='2024-07-01', periods=time_steps, freq=f'{15*step_gap}min')
+    
+    # Handle different array lengths
+    positions_flat = positions.flatten() if positions.ndim > 1 else positions
+    
+    # Pad or truncate arrays to match net_assets length
+    if len(positions_flat) < time_steps:
+        positions_flat = np.pad(positions_flat, (0, time_steps - len(positions_flat)), 'constant', constant_values=0)
+    elif len(positions_flat) > time_steps:
+        positions_flat = positions_flat[:time_steps]
+    
+    if len(correct_predictions) < time_steps - 1:
+        correct_predictions = np.pad(correct_predictions, (0, time_steps - 1 - len(correct_predictions)), 'constant', constant_values=0)
+    elif len(correct_predictions) > time_steps - 1:
+        correct_predictions = correct_predictions[:time_steps - 1]
+    
+    # Create DataFrame for easier analysis
+    df = pd.DataFrame({
+        'timestamp': time_index,
+        'net_assets': net_assets,
+        'btc_positions': btc_positions,
+        'positions': positions_flat,
+        'correct_predictions': np.concatenate([[np.nan], correct_predictions])  # Add NaN for first step
+    })
+    
+    # Use actual timestamps for plotting
+    timestamps = time_index
     
     # Calculate returns
     returns = np.diff(net_assets) / net_assets[:-1]
@@ -129,26 +170,26 @@ def analyze_trading_results(save_path="trained_agents"):
     
     # 1. Net asset value changes
     ax1 = fig.add_subplot(3, 2, 1)
-    ax1.plot(time_steps, net_assets, 'b-', linewidth=1.5)
+    ax1.plot(timestamps, net_assets, 'b-', linewidth=1.5)
     ax1.set_title('Net Asset Value', fontproperties=font)
-    ax1.set_xlabel('Time Step', fontproperties=font)
+    ax1.set_xlabel('Time', fontproperties=font)
     ax1.set_ylabel('Net Asset Value', fontproperties=font)
     ax1.ticklabel_format(style='plain', axis='y')  # Avoid scientific notation
     ax1.grid(True, alpha=0.3)
     
     # 2. Cumulative returns
     ax2 = fig.add_subplot(3, 2, 2)
-    ax2.plot(time_steps[1:], cumulative_returns * 100, 'g-', linewidth=1.5)
+    ax2.plot(timestamps[1:], cumulative_returns * 100, 'g-', linewidth=1.5)
     ax2.set_title('Cumulative Return (%)', fontproperties=font)
-    ax2.set_xlabel('Time Step', fontproperties=font)
+    ax2.set_xlabel('Time', fontproperties=font)
     ax2.set_ylabel('Cumulative Return (%)', fontproperties=font)
     ax2.grid(True, alpha=0.3)
     
     # 3. Position changes
     ax3 = fig.add_subplot(3, 2, 3)
-    ax3.plot(time_steps, btc_positions, 'r-', linewidth=1.5)
+    ax3.plot(timestamps, btc_positions, 'r-', linewidth=1.5)
     ax3.set_title('BTC Position (Holdings)', fontproperties=font)
-    ax3.set_xlabel('Time Step', fontproperties=font)
+    ax3.set_xlabel('Time', fontproperties=font)
     ax3.set_ylabel('BTC Holdings', fontproperties=font)
     ax3.grid(True, alpha=0.3)
     
@@ -217,9 +258,9 @@ def analyze_trading_results(save_path="trained_agents"):
         if correct_predictions[i] == 1 or correct_predictions[i] == -1:
             # Determine if it's buy or sell
             # We need to judge based on position changes
-            if i > 0 and positions[i] > positions[i-1]:
+            if i > 0 and positions_flat[i] > positions_flat[i-1]:
                 buys += 1
-            elif i > 0 and positions[i] < positions[i-1]:
+            elif i > 0 and positions_flat[i] < positions_flat[i-1]:
                 sells += 1
             else:
                 # Attempted to trade but unsuccessful (possibly insufficient funds or other reasons)
